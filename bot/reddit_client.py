@@ -258,83 +258,73 @@ class RedditClient:
             temp_video_path = download_path + ".temp_video.mp4"
             temp_audio_path = download_path + ".temp_audio.mp4"
             
-            # Download video
-            logger.info(f"Downloading video stream from {video_url}")
-            video_response = requests.get(video_url, stream=True)
-            video_response.raise_for_status()
+            # Check if we have an HLS URL for the video
+            # Default to using regular download as fallback
+            use_regular_download = False
             
-            with open(temp_video_path, 'wb') as f:
-                for chunk in video_response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            
-            # Try to get the audio URL
-            # First method: Try directly accessing the audio URL
-            audio_url = video_url.split('DASH_')[0] + 'DASH_audio.mp4'
-            
-            # Second method: Try using the HLS playlist URL
             hls_url = None
             if hasattr(submission, 'media') and submission.media and 'reddit_video' in submission.media:
                 if 'hls_url' in submission.media['reddit_video']:
                     hls_url = submission.media['reddit_video']['hls_url']
                     logger.info(f"Found HLS URL: {hls_url}")
-                    
-            # Third method: Try looking for audio in the submission URL (for newer Reddit videos)
-            base_url = submission.url.rstrip('/')
-            alt_audio_url = f"{base_url}/DASH_audio.mp4"
-            logger.info(f"Trying alternate audio URL: {alt_audio_url}")
             
-            # Download audio if it exists
-            try:
-                logger.info(f"Trying to download audio stream from {audio_url}")
-                audio_response = requests.get(audio_url, stream=True)
-                audio_response.raise_for_status()
+            if hls_url:
+                # Use FFmpeg to download directly from the HLS source (preserves audio automatically)
+                logger.info(f"Using FFmpeg to download and process video from HLS URL")
                 
-                with open(temp_audio_path, 'wb') as f:
-                    for chunk in audio_response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                
-                has_audio = True
-                logger.info("Audio stream downloaded successfully")
-            except Exception as e:
-                logger.warning(f"No audio stream found or error downloading audio: {str(e)}")
-                has_audio = False
-            
-            # If we have both audio and video, merge them using FFmpeg
-            if has_audio:
-                logger.info("Merging video and audio streams")
-                
-                # Merge video and audio
                 command = [
                     'ffmpeg',
-                    '-i', temp_video_path,
-                    '-i', temp_audio_path,
-                    '-c:v', 'copy',
-                    '-c:a', 'aac',
-                    '-map', '0:v:0',
-                    '-map', '1:a:0',
-                    '-shortest',
-                    '-y',
+                    '-i', hls_url,
+                    '-c', 'copy',  # Copy streams without re-encoding
+                    '-y',  # Overwrite output file if it exists
                     download_path
                 ]
                 
-                process = subprocess.Popen(
-                    command,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
-                )
-                stdout, stderr = process.communicate()
-                
-                if process.returncode != 0:
-                    logger.error(f"Error merging video and audio: {stderr.decode('utf-8')}")
-                    # Fallback to just the video
-                    shutil.move(temp_video_path, download_path)
-                    logger.warning("Using video without audio as fallback")
-                else:
-                    logger.info(f"Successfully merged video and audio to {download_path}")
+                try:
+                    process = subprocess.Popen(
+                        command,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
+                    )
+                    stdout, stderr = process.communicate()
+                    
+                    if process.returncode != 0:
+                        logger.error(f"Error downloading with FFmpeg: {stderr.decode('utf-8')}")
+                        # Fall back to regular download method
+                        logger.warning("Falling back to regular download without audio")
+                        use_regular_download = True
+                    else:
+                        logger.info(f"Successfully downloaded video with FFmpeg to {download_path}")
+                        
+                        # Check the output to see if it mentions audio streams
+                        stderr_text = stderr.decode('utf-8')
+                        if "Audio:" in stderr_text:
+                            logger.info("Audio stream found and included in the download")
+                        else:
+                            logger.info("No audio stream detected in the downloaded file")
+                        
+                        # Successfully downloaded with possible audio
+                        return download_path
+                except Exception as e:
+                    logger.error(f"Exception running FFmpeg: {str(e)}")
+                    use_regular_download = True
             else:
-                # Just use the video
-                shutil.move(temp_video_path, download_path)
-                logger.info(f"Using video without audio")
+                use_regular_download = True
+            
+            # Regular download method as fallback
+            if use_regular_download:
+                # Download video
+                logger.info(f"Downloading video stream from {video_url}")
+                video_response = requests.get(video_url, stream=True)
+                video_response.raise_for_status()
+                
+                with open(download_path, 'wb') as f:
+                    for chunk in video_response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                
+                logger.info(f"Downloaded video without audio to {download_path}")
+                # Return the video-only version as we couldn't get the audio
+                return download_path
             
             # Clean up temporary files
             if os.path.exists(temp_video_path):
