@@ -12,5 +12,6 @@ dependencies = [
     "opencv-python>=4.11.0.86",
     "praw>=7.8.1",
     "psycopg2-binary>=2.9.10",
+    "trafilatura>=2.0.0",
     "tweepy>=4.15.0",
 ]

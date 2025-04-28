@@ -15,7 +15,7 @@ TWITTER_ACCESS_TOKEN_SECRET = os.getenv('TWITTER_ACCESS_TOKEN_SECRET', '')
 TWITTER_BEARER_TOKEN = os.getenv('TWITTER_BEARER_TOKEN', '')
 
 # Bot configuration
-SUBREDDITS = os.getenv('SUBREDDITS', 'videos,gifs,funny').split(',')
+SUBREDDITS = os.getenv('SUBREDDITS', 'CombatFootage,videos,gifs,funny').split(',')
 DOWNLOAD_FOLDER = os.getenv('DOWNLOAD_FOLDER', './downloads')
 MAX_VIDEO_SIZE_MB = int(os.getenv('MAX_VIDEO_SIZE_MB', '15'))  # Twitter has a 15MB limit for videos
 MAX_VIDEO_DURATION_SECONDS = int(os.getenv('MAX_VIDEO_DURATION_SECONDS', '140'))  # Twitter has a 140s limit
