@@ -64,20 +64,24 @@ class TwitterClient:
             return
             
         try:
-            # Auth v1.1 (needed for media upload)
-            self.auth = tweepy.OAuth1UserHandler(
-                TWITTER_API_KEY,
-                TWITTER_API_KEY_SECRET,
-                TWITTER_ACCESS_TOKEN,
-                TWITTER_ACCESS_TOKEN_SECRET
-            )
-            self.api = tweepy.API(self.auth)
-            
-            # API v2 client - using OAuth1 credentials (bearer token not required)
-            # Print key info for debugging (safely)
+            logger.info("Initializing Twitter client with OAuth 1.0a...")
             logger.debug(f"API Key: {TWITTER_API_KEY[:4]}...{TWITTER_API_KEY[-4:] if len(TWITTER_API_KEY) > 8 else ''}")
             logger.debug(f"Access Token: {TWITTER_ACCESS_TOKEN[:4]}...{TWITTER_ACCESS_TOKEN[-4:] if len(TWITTER_ACCESS_TOKEN) > 8 else ''}")
             
+            # Auth v1.1 (needed for media upload)
+            # Per X.com documentation, v1.1 endpoints are authenticated using OAuth 1.0a
+            self.auth = tweepy.OAuth1UserHandler(
+                consumer_key=TWITTER_API_KEY,
+                consumer_secret=TWITTER_API_KEY_SECRET,
+                access_token=TWITTER_ACCESS_TOKEN,
+                access_token_secret=TWITTER_ACCESS_TOKEN_SECRET,
+                callback=None
+            )
+            
+            # Initialize API v1.1 client
+            self.api = tweepy.API(self.auth)
+            
+            # API v2 client - also using OAuth1 credentials 
             self.client = tweepy.Client(
                 consumer_key=TWITTER_API_KEY,
                 consumer_secret=TWITTER_API_KEY_SECRET,
@@ -87,8 +91,17 @@ class TwitterClient:
             
             # Test connection
             try:
+                # Test API v1.1 connection
+                logger.info("Testing Twitter API v1.1 connection...")
                 user = self.api.verify_credentials()
                 logger.info(f"Twitter client initialized - authenticated as @{user.screen_name}")
+                
+                # Test API v2 connection
+                logger.info("Testing Twitter API v2 connection...")
+                me = self.client.get_me()
+                if me.data:
+                    logger.info(f"Twitter API v2 connection successful - user ID: {me.data.id}")
+                
                 logger.info(f"Twitter API connection successful - app is authorized for this account")
             except tweepy.TweepyException as e:
                 error_msg = str(e)
@@ -99,8 +112,9 @@ class TwitterClient:
                     logger.error("Error 401: Unauthorized - Your credentials may be invalid or expired")
                     logger.error("Make sure you have:") 
                     logger.error("1. Correct API key and secret")
-                    logger.error("2. Correct access token and secret")
-                    logger.error("3. Proper permissions (read/write) on your Twitter app")
+                    logger.error("2. Correct access token and secret with appropriate permissions")
+                    logger.error("3. The API key and access token match the same application")
+                    logger.error("4. Your app has the appropriate Twitter API access level")
                 elif "403" in error_msg:
                     logger.error("Error 403: Forbidden - Your app lacks proper permissions")
                     logger.error("Make sure your Twitter app has read/write permissions")
@@ -150,13 +164,31 @@ class TwitterClient:
                 return self.mock_client.post_video(video_path, text)
                 
             # Upload the video using v1.1 API
-            logger.info(f"Uploading video: {video_path} (size: {os.path.getsize(video_path)/1024/1024:.2f} MB)")
+            # Following X.com documentation on media uploads
+            # https://docs.x.com/resources/media/upload-media
+            
+            file_size_mb = os.path.getsize(video_path) / (1024 * 1024)
+            logger.info(f"Uploading video: {video_path} (size: {file_size_mb:.2f} MB)")
             
             try:
-                media = self.api.media_upload(
-                    filename=video_path,
-                    media_category='tweet_video'
-                )
+                # Use chunked upload for larger videos
+                # This is required for videos > 5MB
+                if file_size_mb > 5:
+                    logger.info("Using chunked upload for video > 5MB")
+                    
+                    # Tweepy handles chunked uploads automatically when using media_upload 
+                    # with a large file and appropriate category
+                    media = self.api.media_upload(
+                        filename=video_path,
+                        media_category='tweet_video',
+                        chunked=True
+                    )
+                else:
+                    logger.info("Using standard upload for video < 5MB")
+                    media = self.api.media_upload(
+                        filename=video_path,
+                        media_category='tweet_video'
+                    )
                 
                 # Wait for media processing to complete
                 media_id = media.media_id_string
