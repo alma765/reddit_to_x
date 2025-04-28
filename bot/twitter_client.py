@@ -12,36 +12,94 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-class TwitterClient:
+class MockTwitterClient:
+    """Mock Twitter client for testing or when credentials are not available"""
     def __init__(self):
+        """Initialize mock Twitter client"""
+        logger.info("Mock Twitter client initialized - posts will be simulated but not actually sent")
+    
+    def post_video(self, video_path, text=None):
+        """
+        Simulate posting a video to Twitter
+        
+        Args:
+            video_path (str): Path to the video file
+            text (str): Text to accompany the post
+            
+        Returns:
+            dict: Mock response with tweet ID and URL
+        """
+        import uuid
+        
+        if not os.path.exists(video_path):
+            logger.error(f"Video file not found: {video_path}")
+            raise FileNotFoundError(f"Video file not found: {video_path}")
+        
+        # Get file size
+        file_size_mb = os.path.getsize(video_path) / (1024 * 1024)
+        
+        # Generate mock tweet ID
+        mock_tweet_id = str(uuid.uuid4()).replace('-', '')[:16]
+        mock_tweet_url = f"https://twitter.com/user/status/{mock_tweet_id}"
+        
+        logger.info(f"MOCK: Would post video ({file_size_mb:.2f} MB) to Twitter")
+        logger.info(f"MOCK: Tweet text: {text[:50] if text else 'No text'}")
+        logger.info(f"MOCK: Tweet ID: {mock_tweet_id}")
+        logger.info(f"MOCK: Tweet URL: {mock_tweet_url}")
+        
+        return {
+            'tweet_id': mock_tweet_id,
+            'tweet_url': mock_tweet_url
+        }
+
+class TwitterClient:
+    def __init__(self, use_mock=False):
         """Initialize Twitter API client using Tweepy"""
-        if not all([TWITTER_API_KEY, TWITTER_API_KEY_SECRET, 
-                   TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET]):
-            logger.error("Twitter API credentials not configured")
-            raise ValueError("Twitter API credentials not configured")
+        self.use_mock = use_mock
         
-        # Auth v1.1 (needed for media upload)
-        self.auth = tweepy.OAuth1UserHandler(
-            TWITTER_API_KEY,
-            TWITTER_API_KEY_SECRET,
-            TWITTER_ACCESS_TOKEN,
-            TWITTER_ACCESS_TOKEN_SECRET
-        )
-        self.api = tweepy.API(self.auth)
-        
-        # API v2 client - using OAuth1 credentials (bearer token not required)
-        # Print key info for debugging (safely)
-        logger.debug(f"API Key: {TWITTER_API_KEY[:4]}...{TWITTER_API_KEY[-4:] if len(TWITTER_API_KEY) > 8 else ''}")
-        logger.debug(f"Access Token: {TWITTER_ACCESS_TOKEN[:4]}...{TWITTER_ACCESS_TOKEN[-4:] if len(TWITTER_ACCESS_TOKEN) > 8 else ''}")
-        
-        self.client = tweepy.Client(
-            consumer_key=TWITTER_API_KEY,
-            consumer_secret=TWITTER_API_KEY_SECRET,
-            access_token=TWITTER_ACCESS_TOKEN,
-            access_token_secret=TWITTER_ACCESS_TOKEN_SECRET
-        )
-        
-        logger.info("Twitter client initialized")
+        if use_mock or not all([TWITTER_API_KEY, TWITTER_API_KEY_SECRET, 
+                               TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET]):
+            logger.warning("Using mock Twitter client - tweets will not be posted to Twitter")
+            self.mock_client = MockTwitterClient()
+            return
+            
+        try:
+            # Auth v1.1 (needed for media upload)
+            self.auth = tweepy.OAuth1UserHandler(
+                TWITTER_API_KEY,
+                TWITTER_API_KEY_SECRET,
+                TWITTER_ACCESS_TOKEN,
+                TWITTER_ACCESS_TOKEN_SECRET
+            )
+            self.api = tweepy.API(self.auth)
+            
+            # API v2 client - using OAuth1 credentials (bearer token not required)
+            # Print key info for debugging (safely)
+            logger.debug(f"API Key: {TWITTER_API_KEY[:4]}...{TWITTER_API_KEY[-4:] if len(TWITTER_API_KEY) > 8 else ''}")
+            logger.debug(f"Access Token: {TWITTER_ACCESS_TOKEN[:4]}...{TWITTER_ACCESS_TOKEN[-4:] if len(TWITTER_ACCESS_TOKEN) > 8 else ''}")
+            
+            self.client = tweepy.Client(
+                consumer_key=TWITTER_API_KEY,
+                consumer_secret=TWITTER_API_KEY_SECRET,
+                access_token=TWITTER_ACCESS_TOKEN,
+                access_token_secret=TWITTER_ACCESS_TOKEN_SECRET
+            )
+            
+            # Test connection
+            try:
+                user = self.api.verify_credentials()
+                logger.info(f"Twitter client initialized - authenticated as @{user.screen_name}")
+            except Exception as e:
+                logger.error(f"Twitter authentication failed: {str(e)}")
+                logger.warning("Falling back to mock Twitter client")
+                self.use_mock = True
+                self.mock_client = MockTwitterClient()
+                
+        except Exception as e:
+            logger.error(f"Error initializing Twitter client: {str(e)}")
+            logger.warning("Falling back to mock Twitter client")
+            self.use_mock = True
+            self.mock_client = MockTwitterClient()
     
     def post_video(self, video_path, text=None):
         """
