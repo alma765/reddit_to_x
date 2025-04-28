@@ -80,6 +80,22 @@
                                 <span>Target Subreddits</span>
                                 <span>{{ subreddits|length }}</span>
                             </li>
+                            <li class="list-group-item d-flex justify-content-between">
+                                <span>Reddit API</span>
+                                {% if reddit_configured %}
+                                <span class="badge bg-success">Configured</span>
+                                {% else %}
+                                <span class="badge bg-danger">Not Configured</span>
+                                {% endif %}
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between">
+                                <span>Twitter API</span>
+                                {% if twitter_configured %}
+                                <span class="badge bg-success">Configured</span>
+                                {% else %}
+                                <span class="badge bg-danger">Not Configured</span>
+                                {% endif %}
+                            </li>
                         </ul>
                     </div>
                 </div>
