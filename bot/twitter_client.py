@@ -30,9 +30,8 @@ class TwitterClient:
         )
         self.api = tweepy.API(self.auth)
         
-        # API v2 client
+        # API v2 client - using OAuth1 credentials (bearer token not required)
         self.client = tweepy.Client(
-            bearer_token=TWITTER_BEARER_TOKEN,
             consumer_key=TWITTER_API_KEY,
             consumer_secret=TWITTER_API_KEY_SECRET,
             access_token=TWITTER_ACCESS_TOKEN,
@@ -57,25 +56,47 @@ class TwitterClient:
             raise FileNotFoundError(f"Video file not found: {video_path}")
         
         try:
+            # First test that we can connect to the Twitter API
+            logger.info("Testing Twitter API connection...")
+            try:
+                # Simple API call to verify credentials
+                user = self.api.verify_credentials()
+                logger.info(f"Authenticated as: @{user.screen_name}")
+            except Exception as auth_error:
+                logger.error(f"Authentication error: {str(auth_error)}")
+                raise Exception(f"Twitter API authentication failed: {str(auth_error)}")
+                
             # Upload the video using v1.1 API
-            media = self.api.media_upload(
-                filename=video_path,
-                media_category='tweet_video'
-            )
+            logger.info(f"Uploading video: {video_path} (size: {os.path.getsize(video_path)/1024/1024:.2f} MB)")
             
-            # Wait for media processing to complete
-            media_id = media.media_id_string
-            logger.info(f"Media uploaded with ID: {media_id}, waiting for processing...")
-            
-            # Check if media is ready (chunked upload can take time to process)
-            self._wait_for_media_processing(media_id)
+            try:
+                media = self.api.media_upload(
+                    filename=video_path,
+                    media_category='tweet_video'
+                )
+                
+                # Wait for media processing to complete
+                media_id = media.media_id_string
+                logger.info(f"Media uploaded with ID: {media_id}, waiting for processing...")
+                
+                # Check if media is ready (chunked upload can take time to process)
+                self._wait_for_media_processing(media_id)
+            except Exception as media_error:
+                logger.error(f"Media upload error: {str(media_error)}")
+                raise Exception(f"Twitter media upload failed: {str(media_error)}")
             
             # Create the tweet with media using v2 API
             tweet_text = text or "Check out this video from Reddit!"
-            response = self.client.create_tweet(
-                text=tweet_text[:280],  # Ensure text fits within Twitter limit
-                media_ids=[media_id]
-            )
+            logger.info(f"Posting tweet with text: {tweet_text[:50]}...")
+            
+            try:
+                response = self.client.create_tweet(
+                    text=tweet_text[:280],  # Ensure text fits within Twitter limit
+                    media_ids=[media_id]
+                )
+            except Exception as tweet_error:
+                logger.error(f"Tweet creation error: {str(tweet_error)}")
+                raise Exception(f"Twitter tweet creation failed: {str(tweet_error)}")
             
             tweet_id = response.data['id']
             tweet_url = f"https://twitter.com/user/status/{tweet_id}"
