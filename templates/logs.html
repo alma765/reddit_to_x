@@ -114,6 +114,11 @@
                                                 </div>
                                                 <div class="modal-body">
                                                     <h6>{{ post.title }}</h6>
+                                                    {% if post.cleaned_title %}
+                                                    <div class="alert alert-info">
+                                                        <strong>Cleaned Title:</strong> {{ post.cleaned_title }}
+                                                    </div>
+                                                    {% endif %}
                                                     <hr>
                                                     <div class="row">
                                                         <div class="col-md-6">

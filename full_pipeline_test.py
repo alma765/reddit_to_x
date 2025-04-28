@@ -94,8 +94,23 @@ def test_full_pipeline():
                     
                     continue
             
-            # Prepare post text
-            post_text = f"{submission.title}\n\nSource: https://reddit.com{submission.permalink}"
+            # Extract metadata and generate a clean, tweet-friendly title
+            logger.info("Extracting post metadata and generating tweet title...")
+            post_metadata = reddit_client.extract_post_metadata(submission)
+            
+            # Log the original and cleaned titles
+            logger.info(f"Original Title: {submission.title}")
+            logger.info(f"Cleaned Title: {post_metadata['cleaned_title']}")
+            
+            # Use the tweet-friendly title
+            post_text = post_metadata['tweet_title']
+            
+            # Make sure we don't exceed Twitter's character limit
+            if len(post_text) > 280:
+                max_length = 280 - (len(f"\n\nSource: https://reddit.com{submission.permalink}") + 5)
+                post_text = post_text[:max_length] + f"...\n\nSource: https://reddit.com{submission.permalink}"
+            
+            logger.info(f"Using tweet text: {post_text}")
             
             # Post to Twitter
             try:

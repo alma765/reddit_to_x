@@ -3,6 +3,7 @@ import praw
 import requests
 import os
 import re
+import html
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -219,3 +220,122 @@ class RedditClient:
                 except:
                     pass
             return None
+    
+    def extract_post_metadata(self, submission):
+        """
+        Extract useful metadata from a Reddit submission, including cleaned title
+        
+        Args:
+            submission: Reddit submission object
+            
+        Returns:
+            dict: Dictionary containing post metadata
+        """
+        # Get basic submission info
+        metadata = {
+            'reddit_id': submission.id,
+            'title': submission.title,
+            'cleaned_title': self.clean_title(submission.title),
+            'author': submission.author.name if submission.author else '[deleted]',
+            'subreddit': submission.subreddit.display_name,
+            'score': submission.score,
+            'upvote_ratio': submission.upvote_ratio,
+            'created_utc': submission.created_utc,
+            'permalink': submission.permalink,
+            'url': submission.url,
+            'num_comments': submission.num_comments,
+            'is_nsfw': submission.over_18,
+            'is_original_content': submission.is_original_content if hasattr(submission, 'is_original_content') else False,
+        }
+        
+        # Extract flair information if available
+        if hasattr(submission, 'link_flair_text') and submission.link_flair_text:
+            metadata['flair'] = submission.link_flair_text
+        else:
+            metadata['flair'] = None
+            
+        # Get post content if it's a self post
+        if hasattr(submission, 'selftext') and submission.selftext:
+            metadata['selftext'] = submission.selftext
+        else:
+            metadata['selftext'] = None
+            
+        # Check for [OC] tag in title
+        metadata['has_oc_tag'] = '[OC]' in submission.title or '(OC)' in submission.title
+        
+        # Generate a tweet-friendly title (will be truncated later if needed)
+        metadata['tweet_title'] = self.generate_tweet_title(metadata)
+        
+        logger.info(f"Extracted metadata for post {submission.id}: {metadata['cleaned_title']}")
+        return metadata
+    
+    def clean_title(self, title):
+        """
+        Clean a Reddit title for better readability
+        
+        Args:
+            title (str): Original Reddit post title
+            
+        Returns:
+            str: Cleaned title
+        """
+        # Decode HTML entities
+        title = html.unescape(title)
+        
+        # Remove Reddit-specific formatting
+        title = re.sub(r'\[.+?\]|\(.+?\)', '', title)  # Remove content in [] and ()
+        title = re.sub(r'\s+', ' ', title)  # Normalize spaces
+        
+        # Remove common fluff phrases
+        fluff_phrases = [
+            'just', 'so', 'actually', 'literally', 'basically',
+            'I think', 'In my opinion', 'IMO', 'IMHO', 
+            'upvote', 'downvote', 'karma', 'reddit',
+            'cake day', 'cakeday', 'my first post', 'first time',
+            'Title', 'title says it all', 'Don\'t know if posted before',
+            'Not sure if this belongs here', 'Not sure if repost'
+        ]
+        
+        for phrase in fluff_phrases:
+            title = re.sub(r'\b' + re.escape(phrase) + r'\b', '', title, flags=re.IGNORECASE)
+        
+        # Clean up any remaining artifacts
+        title = re.sub(r'\s+', ' ', title)  # Remove multiple spaces
+        title = re.sub(r'^\s+|\s+$', '', title)  # Trim whitespace
+        
+        # Remove excessive punctuation at the end
+        title = re.sub(r'[.,!?:;-]+$', '', title)
+        
+        # If title is empty after cleaning, return original
+        if not title.strip():
+            return title
+            
+        return title
+    
+    def generate_tweet_title(self, metadata):
+        """
+        Generate a title suitable for Twitter
+        
+        Args:
+            metadata (dict): Post metadata from extract_post_metadata
+            
+        Returns:
+            str: Twitter-friendly title
+        """
+        # Use cleaned title as the base
+        title = metadata['cleaned_title'] or metadata['title']
+        
+        # Add location/date information if found in title
+        location_match = re.search(r'in\s+([A-Za-z\s]+)(?:,\s+([A-Za-z\s]+))?', title)
+        date_match = re.search(r'(\d{1,2}\s+[A-Za-z]+\s+\d{4})|(\d{1,2}/\d{1,2}/\d{2,4})', title)
+        
+        tweet = title
+        
+        # Add flair if relevant
+        if metadata['flair'] and metadata['flair'].lower() not in ['video', 'media', 'post']:
+            tweet += f" [{metadata['flair']}]"
+            
+        # Add source attribution
+        tweet += f"\n\nSource: r/{metadata['subreddit']}"
+        
+        return tweet

@@ -164,8 +164,23 @@ def process_and_post():
                 post.video_size_bytes = validation['size_bytes']
                 post.video_duration_seconds = validation['duration']
                 
-                # Prepare post text
-                post_text = f"{submission.title}\n\nSource: https://reddit.com{submission.permalink}"
+                # Extract metadata and generate a clean, tweet-friendly title
+                logger.info("Extracting post metadata and generating tweet title...")
+                post_metadata = reddit_client.extract_post_metadata(submission)
+                
+                # Store the cleaned title in our database
+                post.cleaned_title = post_metadata['cleaned_title']
+                
+                # Use the tweet-friendly title
+                post_text = post_metadata['tweet_title']
+                
+                # Make sure we don't exceed Twitter's character limit
+                if len(post_text) > 280:
+                    # Truncate with room for permalink
+                    max_length = 280 - (len(f"\n\nSource: https://reddit.com{submission.permalink}") + 5)
+                    post_text = post_text[:max_length] + f"...\n\nSource: https://reddit.com{submission.permalink}"
+                
+                logger.info(f"Using tweet text: {post_text}")
                 
                 # Post to Twitter
                 tweet_result = twitter_client.post_video(downloaded_path, post_text)

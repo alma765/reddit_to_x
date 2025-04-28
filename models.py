@@ -7,6 +7,7 @@ class Post(db.Model):
     reddit_id = db.Column(db.String(20), unique=True, nullable=False)
     reddit_url = db.Column(db.String(255), nullable=False)
     title = db.Column(db.String(300), nullable=False)
+    cleaned_title = db.Column(db.String(300), nullable=True)  # Stores the cleaned title
     subreddit = db.Column(db.String(50), nullable=False)
     author = db.Column(db.String(50), nullable=True)
     video_path = db.Column(db.String(255), nullable=True)
@@ -33,6 +34,7 @@ class Post(db.Model):
             'reddit_id': self.reddit_id,
             'reddit_url': self.reddit_url,
             'title': self.title,
+            'cleaned_title': self.cleaned_title,
             'subreddit': self.subreddit,
             'author': self.author,
             'video_path': self.video_path,
