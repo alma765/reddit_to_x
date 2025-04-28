@@ -60,10 +60,19 @@ class RedditClient:
                 subreddit = self.reddit.subreddit(subreddit_name)
                 
                 # Fetch hot posts from the subreddit
+                submission_count = 0
                 for submission in subreddit.hot(limit=limit):
-                    if self._has_video(submission):
+                    submission_count += 1
+                    logger.info(f"Checking submission: {submission.id} - {submission.title}")
+                    
+                    has_video = self._has_video(submission)
+                    if has_video:
+                        logger.info(f"Found video: {submission.title} in r/{subreddit_name}")
                         video_posts.append(submission)
-                        logger.debug(f"Found video: {submission.title} in r/{subreddit_name}")
+                    else:
+                        logger.info(f"No video found in submission: {submission.id}")
+                
+                logger.info(f"Checked {submission_count} submissions, found {len(video_posts)} videos")
                 
             except Exception as e:
                 logger.error(f"Error fetching from r/{subreddit_name}: {str(e)}")
