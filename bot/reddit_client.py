@@ -334,8 +334,5 @@ class RedditClient:
         # Add flair if relevant
         if metadata['flair'] and metadata['flair'].lower() not in ['video', 'media', 'post']:
             tweet += f" [{metadata['flair']}]"
-            
-        # Add source attribution
-        tweet += f"\n\nSource: r/{metadata['subreddit']}"
         
         return tweet

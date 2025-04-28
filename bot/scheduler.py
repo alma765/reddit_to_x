@@ -176,9 +176,9 @@ def process_and_post():
                 
                 # Make sure we don't exceed Twitter's character limit
                 if len(post_text) > 280:
-                    # Truncate with room for permalink
-                    max_length = 280 - (len(f"\n\nSource: https://reddit.com{submission.permalink}") + 5)
-                    post_text = post_text[:max_length] + f"...\n\nSource: https://reddit.com{submission.permalink}"
+                    # Truncate text
+                    max_length = 280 - 3  # Room for ellipsis
+                    post_text = post_text[:max_length] + "..."
                 
                 logger.info(f"Using tweet text: {post_text}")
                 

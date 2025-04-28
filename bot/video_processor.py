@@ -237,35 +237,8 @@ class VideoProcessor:
                 target_bitrate = max(target_bitrate, 200)
                 logger.info(f"Target bitrate: {target_bitrate}kbps for {duration:.2f}s video")
                 
-                # Use OpenCV for compression
-                try:
-                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                    out = cv2.VideoWriter(output_path, fourcc, fps, (new_width, new_height))
-                    
-                    cap = cv2.VideoCapture(input_path)
-                    while True:
-                        ret, frame = cap.read()
-                        if not ret:
-                            break
-                        if new_width != width or new_height != height:
-                            frame = cv2.resize(frame, (new_width, new_height))
-                        out.write(frame)
-                        
-                    cap.release()
-                    out.release()
-                    
-                    # Check final size
-                    compressed_size_mb = os.path.getsize(output_path) / (1024 * 1024)
-                    logger.info(f"Compressed video size: {compressed_size_mb:.2f}MB")
-                    
-                    if compressed_size_mb <= target_size_mb:
-                        return output_path
-                    else:
-                        logger.warning(f"Compression with OpenCV didn't meet target size, trying with FFmpeg")
-                except Exception as e:
-                    logger.warning(f"Error compressing with OpenCV: {e}")
-                
-                # If OpenCV compression didn't work, try FFmpeg as fallback
+                # Skip OpenCV compression since it strips audio
+                # Go directly to FFmpeg for compression to preserve audio
                 try:
                     fd, temp_output = tempfile.mkstemp(suffix='.mp4')
                     os.close(fd)
