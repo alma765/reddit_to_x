@@ -89,8 +89,22 @@ class TwitterClient:
             try:
                 user = self.api.verify_credentials()
                 logger.info(f"Twitter client initialized - authenticated as @{user.screen_name}")
-            except Exception as e:
-                logger.error(f"Twitter authentication failed: {str(e)}")
+                logger.info(f"Twitter API connection successful - app is authorized for this account")
+            except tweepy.TweepyException as e:
+                error_msg = str(e)
+                logger.error(f"Twitter authentication failed: {error_msg}")
+                
+                # Log more detailed error information
+                if "401" in error_msg:
+                    logger.error("Error 401: Unauthorized - Your credentials may be invalid or expired")
+                    logger.error("Make sure you have:") 
+                    logger.error("1. Correct API key and secret")
+                    logger.error("2. Correct access token and secret")
+                    logger.error("3. Proper permissions (read/write) on your Twitter app")
+                elif "403" in error_msg:
+                    logger.error("Error 403: Forbidden - Your app lacks proper permissions")
+                    logger.error("Make sure your Twitter app has read/write permissions")
+                
                 logger.warning("Falling back to mock Twitter client")
                 self.use_mock = True
                 self.mock_client = MockTwitterClient()
