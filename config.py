@@ -7,12 +7,12 @@ REDDIT_USER_AGENT = os.getenv('REDDIT_USER_AGENT', 'python:reddit-to-twitter-bot
 REDDIT_USERNAME = os.getenv('REDDIT_USERNAME', '')
 REDDIT_PASSWORD = os.getenv('REDDIT_PASSWORD', '')
 
-# Twitter API credentials (v2)
+# Twitter API credentials (v1.1 and v2)
 TWITTER_API_KEY = os.getenv('TWITTER_API_KEY', '')
 TWITTER_API_KEY_SECRET = os.getenv('TWITTER_API_KEY_SECRET', '')
 TWITTER_ACCESS_TOKEN = os.getenv('TWITTER_ACCESS_TOKEN', '')
 TWITTER_ACCESS_TOKEN_SECRET = os.getenv('TWITTER_ACCESS_TOKEN_SECRET', '')
-TWITTER_BEARER_TOKEN = os.getenv('TWITTER_BEARER_TOKEN', '')
+# Bearer token is not needed for posting when using OAuth 1.0a
 
 # Bot configuration
 SUBREDDITS = os.getenv('SUBREDDITS', 'CombatFootage,videos,gifs,funny').split(',')
