@@ -164,18 +164,49 @@ class RedditClient:
             # Ensure the directory exists
             os.makedirs(os.path.dirname(download_path), exist_ok=True)
             
+            # First, check the total file size
+            response = requests.head(video_url, allow_redirects=True)
+            if 'Content-Length' in response.headers:
+                size_bytes = int(response.headers['Content-Length'])
+                size_mb = size_bytes / (1024 * 1024)
+                
+                # Log file size
+                logger.info(f"Video size: {size_mb:.2f} MB for {video_url}")
+                
+                # If size is greater than 100MB, don't even try to download
+                # We use 100MB as a hard limit since compression might not work well above this
+                if size_mb > 100:
+                    logger.warning(f"Video is too large ({size_mb:.2f} MB > 100 MB) - skipping")
+                    return None
+            
             # Download the video
-            response = requests.get(video_url, stream=True)
-            response.raise_for_status()
+            download_response = requests.get(video_url, stream=True)
+            download_response.raise_for_status()
             
             # Save the video to the specified path
+            file_size = 0
             with open(download_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
+                for chunk in download_response.iter_content(chunk_size=8192):
+                    file_size += len(chunk)
                     f.write(chunk)
+                    
+                    # If we've downloaded more than 100MB, abort
+                    if file_size > 100 * 1024 * 1024:  # 100MB in bytes
+                        logger.warning(f"Download aborted - file exceeds 100MB")
+                        f.close()
+                        os.remove(download_path)
+                        return None
             
-            logger.info(f"Downloaded video to {download_path}")
+            # Check the final size
+            final_size_mb = os.path.getsize(download_path) / (1024 * 1024)
+            logger.info(f"Downloaded video to {download_path} (Size: {final_size_mb:.2f} MB)")
             return download_path
             
         except Exception as e:
             logger.error(f"Error downloading video from {video_url}: {str(e)}")
+            if os.path.exists(download_path):
+                try:
+                    os.remove(download_path)
+                except:
+                    pass
             return None

@@ -110,16 +110,44 @@ def process_and_post():
                 # Validate the video
                 validation = video_processor.validate_video(downloaded_path)
                 
+                # If the video is invalid, check if it's due to size
                 if not validation['valid']:
-                    post.error = True
-                    post.error_message = validation['error']
-                    post.video_path = downloaded_path
-                    post.video_size_bytes = validation['size_bytes']
-                    post.video_duration_seconds = validation['duration']
-                    db.session.add(post)
-                    db.session.commit()
-                    logger.warning(f"Video validation failed for {submission.id}: {validation['error']}")
-                    continue
+                    size_error = False
+                    if validation['error'] and "exceeds Twitter limit" in validation['error']:
+                        size_error = True
+                        logger.info(f"Video exceeds size limit, attempting compression: {validation['size_bytes']/1024/1024:.2f} MB")
+                        
+                        # Try to compress the video
+                        compressed_path = video_processor.compress_video(downloaded_path)
+                        if compressed_path:
+                            logger.info(f"Successfully compressed video: {compressed_path}")
+                            # Validate the compressed video
+                            validation = video_processor.validate_video(compressed_path)
+                            if validation['valid']:
+                                # Update the path to the compressed version
+                                downloaded_path = compressed_path
+                                size_error = False
+                    
+                    # If compression failed or other validation error
+                    if not validation['valid']:
+                        post.error = True
+                        post.error_message = validation['error']
+                        post.video_path = downloaded_path
+                        post.video_size_bytes = validation['size_bytes']
+                        post.video_duration_seconds = validation['duration']
+                        db.session.add(post)
+                        db.session.commit()
+                        logger.warning(f"Video validation failed for {submission.id}: {validation['error']}")
+                        
+                        # Clean up invalid video if it exists
+                        if os.path.exists(downloaded_path):
+                            try:
+                                os.remove(downloaded_path)
+                                logger.info(f"Removed invalid video file: {downloaded_path}")
+                            except Exception as e:
+                                logger.error(f"Failed to remove invalid video: {e}")
+                        
+                        continue
                 
                 # Update post with video info
                 post.video_path = downloaded_path
