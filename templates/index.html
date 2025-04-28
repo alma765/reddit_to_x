@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reddit to Twitter Bot</title>
+    <link rel="stylesheet" href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i data-feather="share-2"></i> Reddit to Twitter Bot
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{{ url_for('index') }}">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('logs') }}">Logs</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Bot Status</h5>
+                        <span class="badge bg-{{ 'success' if scheduler_running else 'danger' }}">
+                            {{ 'Running' if scheduler_running else 'Stopped' }}
+                        </span>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between mb-3">
+                            <form action="{{ url_for('start_bot') }}" method="POST">
+                                <button type="submit" class="btn btn-success" {{ 'disabled' if scheduler_running }}>
+                                    <i data-feather="play"></i> Start Bot
+                                </button>
+                            </form>
+                            <form action="{{ url_for('stop_bot') }}" method="POST">
+                                <button type="submit" class="btn btn-danger" {{ 'disabled' if not scheduler_running }}>
+                                    <i data-feather="square"></i> Stop Bot
+                                </button>
+                            </form>
+                            <form action="{{ url_for('run_now') }}" method="POST">
+                                <button type="submit" class="btn btn-primary">
+                                    <i data-feather="zap"></i> Run Now
+                                </button>
+                            </form>
+                        </div>
+                        <hr>
+                        <h6>Configuration</h6>
+                        <ul class="list-group list-group-flush">
+                            <li class="list-group-item d-flex justify-content-between">
+                                <span>Post Interval</span>
+                                <span>{{ post_interval }} minutes</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between">
+                                <span>Target Subreddits</span>
+                                <span>{{ subreddits|length }}</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Statistics</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row text-center">
+                            <div class="col-4">
+                                <div class="stat-box">
+                                    <h3>{{ total_posts }}</h3>
+                                    <p>Total Posts</p>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="stat-box">
+                                    <h3>{{ successful_posts }}</h3>
+                                    <p>Successful</p>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="stat-box">
+                                    <h3>{{ failed_posts }}</h3>
+                                    <p>Failed</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="progress mt-3">
+                            {% if total_posts > 0 %}
+                            <div class="progress-bar bg-success" style="width: {{ (successful_posts / total_posts) * 100 }}%">
+                                {{ ((successful_posts / total_posts) * 100)|int }}%
+                            </div>
+                            {% else %}
+                            <div class="progress-bar" style="width: 0%">0%</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Subreddits</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    {% for subreddit in subreddits %}
+                    <div class="col-md-3 col-sm-4 col-6 mb-3">
+                        <div class="subreddit-badge">
+                            <a href="https://reddit.com/r/{{ subreddit }}" target="_blank" class="text-decoration-none">
+                                r/{{ subreddit }}
+                            </a>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Recent Activity</h5>
+                <a href="{{ url_for('logs') }}" class="btn btn-sm btn-outline-secondary">View All</a>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-striped mb-0">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Subreddit</th>
+                                <th>Title</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for post in latest_posts %}
+                            <tr>
+                                <td>{{ post.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                <td>r/{{ post.subreddit }}</td>
+                                <td>
+                                    <a href="{{ post.reddit_url }}" target="_blank" class="text-truncate d-inline-block" style="max-width: 300px;">
+                                        {{ post.title }}
+                                    </a>
+                                </td>
+                                <td>
+                                    {% if post.error %}
+                                    <span class="badge bg-danger">Failed</span>
+                                    {% elif post.posted_to_twitter %}
+                                    <a href="{{ post.twitter_post_url }}" target="_blank" class="badge bg-success">Posted</a>
+                                    {% else %}
+                                    <span class="badge bg-warning">Pending</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="4" class="text-center py-3">No posts found</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer mt-5 py-3 bg-dark">
+        <div class="container text-center">
+            <span class="text-muted">Reddit to Twitter Bot &copy; 2025</span>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

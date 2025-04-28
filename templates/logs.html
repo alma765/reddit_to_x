@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logs - Reddit to Twitter Bot</title>
+    <link rel="stylesheet" href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i data-feather="share-2"></i> Reddit to Twitter Bot
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{{ url_for('logs') }}">Logs</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Activity Logs</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-8">
+                        <div class="btn-group" role="group">
+                            <a href="{{ url_for('logs', filter='all', subreddit=current_subreddit) }}" 
+                               class="btn btn-outline-secondary {{ 'active' if current_filter == 'all' }}">
+                                All
+                            </a>
+                            <a href="{{ url_for('logs', filter='success', subreddit=current_subreddit) }}" 
+                               class="btn btn-outline-success {{ 'active' if current_filter == 'success' }}">
+                                Posted
+                            </a>
+                            <a href="{{ url_for('logs', filter='failed', subreddit=current_subreddit) }}" 
+                               class="btn btn-outline-danger {{ 'active' if current_filter == 'failed' }}">
+                                Failed
+                            </a>
+                            <a href="{{ url_for('logs', filter='pending', subreddit=current_subreddit) }}" 
+                               class="btn btn-outline-warning {{ 'active' if current_filter == 'pending' }}">
+                                Pending
+                            </a>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <select class="form-select" id="subredditFilter" onchange="filterBySubreddit(this.value)">
+                            <option value="">All Subreddits</option>
+                            {% for sr in all_subreddits %}
+                            <option value="{{ sr }}" {{ 'selected' if current_subreddit == sr }}>r/{{ sr }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Subreddit</th>
+                                <th>Title</th>
+                                <th>Status</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for post in posts %}
+                            <tr>
+                                <td>{{ post.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                <td>r/{{ post.subreddit }}</td>
+                                <td>
+                                    <a href="{{ post.reddit_url }}" target="_blank" class="text-truncate d-inline-block" style="max-width: 300px;">
+                                        {{ post.title }}
+                                    </a>
+                                </td>
+                                <td>
+                                    {% if post.error %}
+                                    <span class="badge bg-danger">Failed</span>
+                                    {% elif post.posted_to_twitter %}
+                                    <a href="{{ post.twitter_post_url }}" target="_blank" class="badge bg-success">Posted</a>
+                                    {% else %}
+                                    <span class="badge bg-warning">Pending</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-info" 
+                                            data-bs-toggle="modal" 
+                                            data-bs-target="#detailsModal{{ post.id }}">
+                                        Details
+                                    </button>
+                                    
+                                    <!-- Details Modal -->
+                                    <div class="modal fade" id="detailsModal{{ post.id }}" tabindex="-1">
+                                        <div class="modal-dialog modal-lg">
+                                            <div class="modal-content">
+                                                <div class="modal-header">
+                                                    <h5 class="modal-title">Post Details</h5>
+                                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                                </div>
+                                                <div class="modal-body">
+                                                    <h6>{{ post.title }}</h6>
+                                                    <hr>
+                                                    <div class="row">
+                                                        <div class="col-md-6">
+                                                            <p><strong>Reddit ID:</strong> {{ post.reddit_id }}</p>
+                                                            <p><strong>Subreddit:</strong> r/{{ post.subreddit }}</p>
+                                                            <p><strong>Author:</strong> {{ post.author }}</p>
+                                                            <p><strong>Created:</strong> {{ post.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                                                        </div>
+                                                        <div class="col-md-6">
+                                                            {% if post.video_path %}
+                                                            <p><strong>Video Size:</strong> {{ (post.video_size_bytes / 1024 / 1024)|round(2) }} MB</p>
+                                                            <p><strong>Duration:</strong> {{ post.video_duration_seconds|round(2) }} seconds</p>
+                                                            {% endif %}
+                                                            
+                                                            {% if post.processed_at %}
+                                                            <p><strong>Processed:</strong> {{ post.processed_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                                                            {% endif %}
+                                                            
+                                                            {% if post.posted_to_twitter %}
+                                                            <p><strong>Twitter ID:</strong> {{ post.twitter_post_id }}</p>
+                                                            {% endif %}
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    {% if post.error %}
+                                                    <div class="alert alert-danger mt-3">
+                                                        <strong>Error:</strong> {{ post.error_message }}
+                                                    </div>
+                                                    {% endif %}
+                                                    
+                                                    <div class="mt-3">
+                                                        <div class="d-flex">
+                                                            <a href="{{ post.reddit_url }}" target="_blank" class="btn btn-outline-primary me-2">
+                                                                <i data-feather="external-link"></i> Reddit Post
+                                                            </a>
+                                                            
+                                                            {% if post.posted_to_twitter %}
+                                                            <a href="{{ post.twitter_post_url }}" target="_blank" class="btn btn-outline-info">
+                                                                <i data-feather="twitter"></i> Twitter Post
+                                                            </a>
+                                                            {% endif %}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center py-3">No posts found</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Pagination -->
+                {% if pagination.pages > 1 %}
+                <nav class="mt-4">
+                    <ul class="pagination justify-content-center">
+                        {% for p in range(1, pagination.pages + 1) %}
+                        <li class="page-item {{ 'active' if p == pagination.page }}">
+                            <a class="page-link" href="{{ url_for('logs', page=p, filter=current_filter, subreddit=current_subreddit) }}">
+                                {{ p }}
+                            </a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </nav>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer mt-5 py-3 bg-dark">
+        <div class="container text-center">
+            <span class="text-muted">Reddit to Twitter Bot &copy; {{ now().year }}</span>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        function filterBySubreddit(subreddit) {
+            window.location.href = "{{ url_for('logs', filter=current_filter) }}" + 
+                                  (subreddit ? "&subreddit=" + subreddit : "");
+        }
+    </script>
+</body>
+</html>

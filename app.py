@@ -1,0 +1,164 @@
+import os
+import logging
+
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.orm import DeclarativeBase
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+class Base(DeclarativeBase):
+    pass
+
+db = SQLAlchemy(model_class=Base)
+# create the app
+app = Flask(__name__)
+app.secret_key = os.environ.get("SESSION_SECRET")
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1) # needed for url_for to generate with https
+
+# configure the database
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///redditbot.db")
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_recycle": 300,
+    "pool_pre_ping": True,
+}
+# initialize the app with the extension, flask-sqlalchemy >= 3.0.x
+db.init_app(app)
+
+with app.app_context():
+    # Make sure to import the models here or their tables won't be created
+    import models  # noqa: F401
+    db.create_all()
+
+from bot.scheduler import scheduler
+from config import SUBREDDITS, POST_INTERVAL_MINUTES, REDDIT_CLIENT_ID, TWITTER_API_KEY
+
+@app.route('/')
+def index():
+    """Homepage displaying bot status and configuration"""
+    from models import Post
+    
+    # Get basic stats
+    total_posts = db.session.query(Post).count()
+    successful_posts = db.session.query(Post).filter_by(posted_to_twitter=True).count()
+    failed_posts = db.session.query(Post).filter_by(error=True).count()
+    
+    # Get latest posts
+    latest_posts = db.session.query(Post).order_by(Post.created_at.desc()).limit(5).all()
+    
+    # Check API configuration status
+    reddit_configured = bool(REDDIT_CLIENT_ID)
+    twitter_configured = bool(TWITTER_API_KEY)
+    
+    return render_template('index.html', 
+                          total_posts=total_posts,
+                          successful_posts=successful_posts,
+                          failed_posts=failed_posts,
+                          latest_posts=latest_posts,
+                          subreddits=SUBREDDITS,
+                          post_interval=POST_INTERVAL_MINUTES,
+                          scheduler_running=scheduler.running,
+                          reddit_configured=reddit_configured,
+                          twitter_configured=twitter_configured)
+
+@app.route('/logs')
+def logs():
+    """View detailed logs of all posts"""
+    from models import Post
+    
+    page = request.args.get('page', 1, type=int)
+    per_page = 20
+    
+    # Filtering options
+    filter_type = request.args.get('filter', 'all')
+    subreddit = request.args.get('subreddit', '')
+    
+    query = db.session.query(Post)
+    
+    if filter_type == 'success':
+        query = query.filter_by(posted_to_twitter=True)
+    elif filter_type == 'failed':
+        query = query.filter_by(error=True)
+    elif filter_type == 'pending':
+        query = query.filter_by(posted_to_twitter=False, error=False)
+        
+    if subreddit:
+        query = query.filter_by(subreddit=subreddit)
+    
+    # Get paginated results
+    pagination = query.order_by(Post.created_at.desc()).paginate(page=page, per_page=per_page)
+    posts = pagination.items
+    
+    # Get list of all subreddits for filter dropdown
+    all_subreddits = db.session.query(Post.subreddit).distinct().all()
+    all_subreddits = [s[0] for s in all_subreddits]
+    
+    return render_template('logs.html', 
+                          posts=posts, 
+                          pagination=pagination,
+                          all_subreddits=all_subreddits,
+                          current_filter=filter_type,
+                          current_subreddit=subreddit)
+
+@app.route('/api/status')
+def api_status():
+    """JSON endpoint for status checks"""
+    from models import Post
+    
+    total_posts = db.session.query(Post).count()
+    successful_posts = db.session.query(Post).filter_by(posted_to_twitter=True).count()
+    failed_posts = db.session.query(Post).filter_by(error=True).count()
+    
+    return jsonify({
+        'status': 'running' if scheduler.running else 'stopped',
+        'total_posts': total_posts,
+        'successful_posts': successful_posts,
+        'failed_posts': failed_posts,
+        'success_rate': (successful_posts / total_posts * 100) if total_posts > 0 else 0
+    })
+
+@app.route('/api/start_bot', methods=['POST'])
+def start_bot():
+    """Start the bot scheduler"""
+    if not scheduler.running:
+        try:
+            scheduler.start()
+            flash('Bot scheduler started successfully', 'success')
+        except Exception as e:
+            flash(f'Failed to start scheduler: {str(e)}', 'danger')
+    else:
+        flash('Scheduler is already running', 'info')
+    return redirect(url_for('index'))
+
+@app.route('/api/stop_bot', methods=['POST'])
+def stop_bot():
+    """Stop the bot scheduler"""
+    if scheduler.running:
+        try:
+            scheduler.shutdown()
+            flash('Bot scheduler stopped successfully', 'success')
+        except Exception as e:
+            flash(f'Failed to stop scheduler: {str(e)}', 'danger')
+    else:
+        flash('Scheduler is already stopped', 'info')
+    return redirect(url_for('index'))
+
+@app.route('/api/run_now', methods=['POST'])
+def run_now():
+    """Run the bot once immediately"""
+    from bot.scheduler import process_and_post
+    
+    try:
+        process_and_post()
+        flash('Bot executed successfully', 'success')
+    except Exception as e:
+        logger.exception("Error running bot manually")
+        flash(f'Error running bot: {str(e)}', 'danger')
+    
+    return redirect(url_for('index'))
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)

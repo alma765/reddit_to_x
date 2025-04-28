@@ -1,0 +1,80 @@
+/* Custom styles for Reddit to Twitter Bot */
+
+.stat-box {
+    padding: 1rem 0;
+    border-radius: 0.25rem;
+}
+
+.stat-box h3 {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+    font-weight: bold;
+}
+
+.stat-box p {
+    margin-bottom: 0;
+    opacity: 0.8;
+}
+
+.subreddit-badge {
+    background-color: var(--bs-dark);
+    border-radius: 0.5rem;
+    padding: 0.5rem 1rem;
+    text-align: center;
+    transition: all 0.2s ease;
+}
+
+.subreddit-badge:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.subreddit-badge a {
+    color: var(--bs-info);
+    font-weight: 600;
+}
+
+/* Table styles */
+.table-responsive {
+    border-radius: 0.25rem;
+    overflow: hidden;
+}
+
+/* Navbar adjustments */
+.navbar-brand i {
+    margin-right: 0.5rem;
+}
+
+/* Footer styles */
+.footer {
+    margin-top: 2rem;
+}
+
+/* Modal adjustments */
+.modal-content {
+    border: none;
+    border-radius: 0.5rem;
+}
+
+.modal-header {
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bs-dark);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--bs-secondary);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--bs-primary);
+}
