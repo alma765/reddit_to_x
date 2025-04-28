@@ -46,11 +46,21 @@ def process_and_post():
         if twitter_client is None:
             try:
                 from bot.twitter_client import TwitterClient
-                twitter_client = TwitterClient()
-                logger.info("Twitter client initialized successfully")
-            except ValueError as e:
+                # Use mock Twitter client when real authentication fails
+                twitter_client = TwitterClient(use_mock=False)  # Will automatically fall back to mock if auth fails
+                
+                if twitter_client.use_mock:
+                    logger.warning("Using mock Twitter client because authentication failed")
+                    logger.warning("Videos will be processed but posts will be simulated, not actually sent to Twitter")
+                    logger.warning("To fix this, update Twitter API credentials in the environment variables")
+                else:
+                    logger.info("Twitter client initialized successfully with real authentication")
+            except Exception as e:
                 logger.error(f"Could not initialize Twitter client: {e}")
-                return
+                logger.error("Continuing with mock Twitter client as fallback")
+                # Create mock client directly
+                from bot.twitter_client import MockTwitterClient
+                twitter_client = MockTwitterClient()
         
         # Fetch video posts from Reddit
         try:
