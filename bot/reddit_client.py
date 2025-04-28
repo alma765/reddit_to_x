@@ -4,6 +4,8 @@ import requests
 import os
 import re
 import html
+import subprocess
+import shutil
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -137,7 +139,9 @@ class RedditClient:
         if hasattr(submission, 'is_video') and submission.is_video:
             # Reddit hosted video
             if hasattr(submission, 'media') and submission.media and 'reddit_video' in submission.media:
-                return submission.media['reddit_video']['fallback_url']
+                # Just return the submission ID for Reddit videos
+                # We'll handle the special download process in the download_video method
+                return f"reddit:{submission.id}"
         
         # For gfycat links
         if 'gfycat.com' in submission.url:
@@ -174,6 +178,13 @@ class RedditClient:
             # Ensure the directory exists
             os.makedirs(os.path.dirname(download_path), exist_ok=True)
             
+            # Special handling for Reddit videos (which have separate audio and video streams)
+            if video_url.startswith('reddit:'):
+                # Extract submission ID from the URL
+                submission_id = video_url.split(':')[1]
+                return self._download_reddit_video(submission_id, download_path)
+            
+            # Standard download for all other videos
             # First, check the total file size
             response = requests.head(video_url, allow_redirects=True)
             if 'Content-Length' in response.headers:
@@ -219,6 +230,133 @@ class RedditClient:
                     os.remove(download_path)
                 except:
                     pass
+            return None
+            
+    def _download_reddit_video(self, submission_id, download_path):
+        """
+        Download a Reddit video with audio
+        
+        Args:
+            submission_id (str): Reddit submission ID
+            download_path (str): Path where the video should be saved
+            
+        Returns:
+            str: Path to the downloaded video or None if download failed
+        """
+        try:
+            # Get the submission object
+            submission = self.reddit.submission(id=submission_id)
+            
+            if not hasattr(submission, 'media') or not submission.media or 'reddit_video' not in submission.media:
+                logger.error(f"No reddit_video found in submission {submission_id}")
+                return None
+            
+            # Get the video URL
+            video_url = submission.media['reddit_video']['fallback_url']
+            
+            # Create temporary paths for video and audio files
+            temp_video_path = download_path + ".temp_video.mp4"
+            temp_audio_path = download_path + ".temp_audio.mp4"
+            
+            # Download video
+            logger.info(f"Downloading video stream from {video_url}")
+            video_response = requests.get(video_url, stream=True)
+            video_response.raise_for_status()
+            
+            with open(temp_video_path, 'wb') as f:
+                for chunk in video_response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            # Try to get the audio URL
+            # First method: Try directly accessing the audio URL
+            audio_url = video_url.split('DASH_')[0] + 'DASH_audio.mp4'
+            
+            # Second method: Try using the HLS playlist URL
+            hls_url = None
+            if hasattr(submission, 'media') and submission.media and 'reddit_video' in submission.media:
+                if 'hls_url' in submission.media['reddit_video']:
+                    hls_url = submission.media['reddit_video']['hls_url']
+                    logger.info(f"Found HLS URL: {hls_url}")
+                    
+            # Third method: Try looking for audio in the submission URL (for newer Reddit videos)
+            base_url = submission.url.rstrip('/')
+            alt_audio_url = f"{base_url}/DASH_audio.mp4"
+            logger.info(f"Trying alternate audio URL: {alt_audio_url}")
+            
+            # Download audio if it exists
+            try:
+                logger.info(f"Trying to download audio stream from {audio_url}")
+                audio_response = requests.get(audio_url, stream=True)
+                audio_response.raise_for_status()
+                
+                with open(temp_audio_path, 'wb') as f:
+                    for chunk in audio_response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                
+                has_audio = True
+                logger.info("Audio stream downloaded successfully")
+            except Exception as e:
+                logger.warning(f"No audio stream found or error downloading audio: {str(e)}")
+                has_audio = False
+            
+            # If we have both audio and video, merge them using FFmpeg
+            if has_audio:
+                logger.info("Merging video and audio streams")
+                
+                # Merge video and audio
+                command = [
+                    'ffmpeg',
+                    '-i', temp_video_path,
+                    '-i', temp_audio_path,
+                    '-c:v', 'copy',
+                    '-c:a', 'aac',
+                    '-map', '0:v:0',
+                    '-map', '1:a:0',
+                    '-shortest',
+                    '-y',
+                    download_path
+                ]
+                
+                process = subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                stdout, stderr = process.communicate()
+                
+                if process.returncode != 0:
+                    logger.error(f"Error merging video and audio: {stderr.decode('utf-8')}")
+                    # Fallback to just the video
+                    shutil.move(temp_video_path, download_path)
+                    logger.warning("Using video without audio as fallback")
+                else:
+                    logger.info(f"Successfully merged video and audio to {download_path}")
+            else:
+                # Just use the video
+                shutil.move(temp_video_path, download_path)
+                logger.info(f"Using video without audio")
+            
+            # Clean up temporary files
+            if os.path.exists(temp_video_path):
+                os.remove(temp_video_path)
+            if os.path.exists(temp_audio_path):
+                os.remove(temp_audio_path)
+            
+            # Check the final size
+            final_size_mb = os.path.getsize(download_path) / (1024 * 1024)
+            logger.info(f"Downloaded Reddit video with ID {submission_id} to {download_path} (Size: {final_size_mb:.2f} MB)")
+            
+            return download_path
+            
+        except Exception as e:
+            logger.error(f"Error downloading Reddit video {submission_id}: {str(e)}")
+            # Clean up any temp files
+            for path in [download_path, download_path + ".temp_video.mp4", download_path + ".temp_audio.mp4"]:
+                if os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except:
+                        pass
             return None
     
     def extract_post_metadata(self, submission):
