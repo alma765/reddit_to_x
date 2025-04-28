@@ -162,7 +162,7 @@ class VideoProcessor:
             
     def compress_video(self, input_path, target_size_mb=None, max_width=1280):
         """
-        Compress a video to meet Twitter's size requirements
+        Compress a video to meet Twitter's size and duration requirements
         
         Args:
             input_path (str): Path to the input video
@@ -181,15 +181,61 @@ class VideoProcessor:
             target_size_mb = MAX_VIDEO_SIZE_MB - 1
             
         try:
-            # Get original file size
+            # Get original file size and validate video
             original_size_mb = os.path.getsize(input_path) / (1024 * 1024)
+            validation = self.validate_video(input_path)
             
-            # If already under target size, return original
-            if original_size_mb <= target_size_mb:
-                logger.info(f"Video already meets size requirements: {original_size_mb:.2f}MB")
+            if not validation['valid']:
+                logger.error(f"Cannot compress invalid video: {validation['error']}")
+                return None
+                
+            duration = validation.get('duration', 0)
+            
+            # Determine if we need to handle duration issues
+            needs_duration_fix = False
+            speed_filter = ""
+            audio_filter = ""
+            
+            # If duration exceeds Twitter's limit by a small amount, speed up the video
+            if duration > MAX_VIDEO_DURATION_SECONDS and duration <= MAX_VIDEO_DURATION_SECONDS * 1.1:
+                # Calculate required speedup factor (add a little buffer to be safe)
+                speed_factor = duration / (MAX_VIDEO_DURATION_SECONDS * 0.98)
+                logger.info(f"Video duration ({duration:.2f}s) slightly exceeds Twitter limit of {MAX_VIDEO_DURATION_SECONDS}s")
+                logger.info(f"Speeding up video by factor of {speed_factor:.2f}x to fit within limit")
+                
+                # For video speedup, we use setpts filter
+                speed_filter = f",setpts={1/speed_factor}*PTS"
+                
+                # For audio speedup (atempo only supports 0.5-2.0 range)
+                if speed_factor <= 2.0:
+                    audio_filter = f"atempo={speed_factor}"
+                else:
+                    # Chain multiple atempo filters for higher speeds
+                    audio_filter = "atempo=2.0,atempo=" + str(speed_factor/2.0)
+                
+                # Adjust effective duration for bitrate calculations
+                duration = duration / speed_factor
+                needs_duration_fix = True
+                
+            # If duration exceeds Twitter's limit by a large amount, trim it
+            elif duration > MAX_VIDEO_DURATION_SECONDS * 1.1:
+                logger.info(f"Video duration ({duration:.2f}s) significantly exceeds Twitter limit of {MAX_VIDEO_DURATION_SECONDS}s")
+                logger.info(f"Trimming video to first {MAX_VIDEO_DURATION_SECONDS} seconds")
+                
+                # For trimming, we use the trim filter
+                speed_filter = f",trim=0:{MAX_VIDEO_DURATION_SECONDS},setpts=PTS-STARTPTS"
+                audio_filter = f"atrim=0:{MAX_VIDEO_DURATION_SECONDS},asetpts=PTS-STARTPTS"
+                
+                # Adjust effective duration for bitrate calculations
+                duration = MAX_VIDEO_DURATION_SECONDS
+                needs_duration_fix = True
+            
+            # If already under target size and no duration issues, return original
+            if original_size_mb <= target_size_mb and not needs_duration_fix:
+                logger.info(f"Video already meets all requirements: {original_size_mb:.2f}MB, {duration:.2f}s")
                 return input_path
                 
-            logger.info(f"Compressing video: {input_path} ({original_size_mb:.2f}MB -> {target_size_mb:.2f}MB)")
+            logger.info(f"Processing video: {input_path} (Size: {original_size_mb:.2f}MB, Duration: {duration:.2f}s)")
             
             # Get video info using OpenCV
             video = cv2.VideoCapture(input_path)
@@ -205,6 +251,10 @@ class VideoProcessor:
             else:
                 new_width = width
                 new_height = height
+            
+            # Ensure dimensions are even (required by some codecs)
+            new_width = new_width - (new_width % 2)
+            new_height = new_height - (new_height % 2)
                 
             # Create output filename
             input_dir, input_filename = os.path.split(input_path)
@@ -214,22 +264,6 @@ class VideoProcessor:
             # Calculate target bitrate based on target size and duration
             # Bitrate = (target_size_bytes * 8) / duration_seconds
             try:
-                validation = self.validate_video(input_path)
-                duration = validation.get('duration', 0)
-                
-                if duration <= 0:
-                    # Fallback calculation based on fps and frame count
-                    video = cv2.VideoCapture(input_path)
-                    frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-                    fps = video.get(cv2.CAP_PROP_FPS)
-                    video.release()
-                    
-                    if fps > 0 and frame_count > 0:
-                        duration = frame_count / fps
-                    else:
-                        # Default to 30 seconds if can't determine duration
-                        duration = 30
-                        
                 # Calculate target bitrate (in kbps)
                 target_size_kb = target_size_mb * 1024
                 target_bitrate = int((target_size_kb * 8) / duration)
@@ -243,6 +277,9 @@ class VideoProcessor:
                     fd, temp_output = tempfile.mkstemp(suffix='.mp4')
                     os.close(fd)
                     
+                    # Build the video filter string
+                    video_filter = f"scale={new_width}:{new_height}{speed_filter}"
+                    
                     # FFmpeg command for compression
                     command = [
                         'ffmpeg',
@@ -251,12 +288,22 @@ class VideoProcessor:
                         '-b:v', f'{target_bitrate}k',
                         '-maxrate', f'{target_bitrate * 1.5}k',
                         '-bufsize', f'{target_bitrate * 3}k',
-                        '-vf', f'scale={new_width}:{new_height}',
+                        '-vf', video_filter,
+                    ]
+                    
+                    # Add audio filter if needed
+                    if audio_filter:
+                        command.extend(['-af', audio_filter])
+                    
+                    # Add remaining parameters
+                    command.extend([
                         '-c:a', 'aac',
                         '-b:a', '128k',
                         '-y',  # Overwrite output file if it exists
                         temp_output
-                    ]
+                    ])
+                    
+                    logger.info(f"Running FFmpeg command: {' '.join(command)}")
                     
                     process = subprocess.Popen(
                         command,
@@ -274,11 +321,26 @@ class VideoProcessor:
                     # Check if the output file exists and meets the size requirement
                     if os.path.exists(temp_output):
                         final_size_mb = os.path.getsize(temp_output) / (1024 * 1024)
-                        logger.info(f"FFmpeg compressed video size: {final_size_mb:.2f}MB")
+                        
+                        # Verify duration meets requirements
+                        output_validation = self.validate_video(temp_output)
+                        if output_validation['valid']:
+                            final_duration = output_validation['duration']
+                            logger.info(f"Processed video stats: Size={final_size_mb:.2f}MB, Duration={final_duration:.2f}s")
+                            
+                            if final_duration > MAX_VIDEO_DURATION_SECONDS:
+                                logger.error(f"Processed video still exceeds duration limit: {final_duration:.2f}s > {MAX_VIDEO_DURATION_SECONDS}s")
+                                os.remove(temp_output)
+                                return None
+                        else:
+                            logger.error(f"Processed video is invalid: {output_validation['error']}")
+                            os.remove(temp_output)
+                            return None
                         
                         if final_size_mb <= target_size_mb:
                             # Move temp file to output path
                             shutil.move(temp_output, output_path)
+                            logger.info(f"Successfully processed video: {output_path}")
                             return output_path
                         else:
                             # Try one more time with lower bitrate
@@ -286,13 +348,20 @@ class VideoProcessor:
                             lower_bitrate = int(target_bitrate * (target_size_mb / final_size_mb) * 0.9)
                             logger.info(f"Trying again with lower bitrate: {lower_bitrate}kbps")
                             
-                            command[5] = f'{lower_bitrate}k'  # update bitrate
-                            command[7] = f'{lower_bitrate * 1.5}k'  # update maxrate
-                            command[9] = f'{lower_bitrate * 3}k'  # update bufsize
+                            # Update bitrate in the command
+                            for i, arg in enumerate(command):
+                                if arg == '-b:v':
+                                    command[i+1] = f'{lower_bitrate}k'
+                                elif arg == '-maxrate':
+                                    command[i+1] = f'{lower_bitrate * 1.5}k'
+                                elif arg == '-bufsize':
+                                    command[i+1] = f'{lower_bitrate * 3}k'
                             
                             fd, temp_output = tempfile.mkstemp(suffix='.mp4')
                             os.close(fd)
                             command[-1] = temp_output
+                            
+                            logger.info(f"Running FFmpeg command (attempt 2): {' '.join(command)}")
                             
                             process = subprocess.Popen(
                                 command,
@@ -309,9 +378,17 @@ class VideoProcessor:
                                 
                             if os.path.exists(temp_output):
                                 final_size_mb = os.path.getsize(temp_output) / (1024 * 1024)
-                                logger.info(f"Final compressed video size: {final_size_mb:.2f}MB")
-                                shutil.move(temp_output, output_path)
-                                return output_path
+                                
+                                # Verify duration meets requirements
+                                output_validation = self.validate_video(temp_output)
+                                if output_validation['valid'] and output_validation['duration'] <= MAX_VIDEO_DURATION_SECONDS:
+                                    logger.info(f"Final processed video: Size={final_size_mb:.2f}MB, Duration={output_validation['duration']:.2f}s")
+                                    shutil.move(temp_output, output_path)
+                                    return output_path
+                                else:
+                                    logger.error(f"Final processed video is invalid or too long")
+                                    os.remove(temp_output)
+                                    return None
                     
                     return None
                     
