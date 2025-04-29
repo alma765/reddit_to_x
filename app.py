@@ -1,5 +1,6 @@
 import os
 import logging
+from datetime import datetime, timedelta
 
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -59,16 +60,45 @@ def index():
     reddit_configured = bool(REDDIT_CLIENT_ID)
     twitter_configured = bool(TWITTER_API_KEY)
     
-    # Check for Twitter rate limiting by looking at recent errors
-    twitter_rate_limited = False
+    # Get persistent Twitter rate limit status
+    from models import SystemStatus
+    
+    # First check stored rate limit status
+    twitter_rate_limited = SystemStatus.get_bool('twitter_rate_limited', False)
+    rate_limit_until = SystemStatus.get_str('twitter_rate_limit_until', None)
+    
+    # Check if we need to clear the rate limit status
+    if rate_limit_until:
+        try:
+            rate_limit_time = datetime.fromisoformat(rate_limit_until)
+            if datetime.utcnow() > rate_limit_time:
+                # Rate limit period has passed, clear the flag
+                SystemStatus.set_bool('twitter_rate_limited', False)
+                SystemStatus.set_str('twitter_rate_limit_until', None)
+                twitter_rate_limited = False
+                logger.info("Twitter rate limit period has expired, cleared the flag")
+        except Exception as e:
+            logger.error(f"Error parsing rate limit time: {e}")
+    
+    # Also check for Twitter rate limiting by looking at recent errors (as backup)
     rate_limit_errors = db.session.query(Post).filter(
-        Post.error_message.like('%429%') | 
-        Post.error_message.like('%Too Many Requests%')
+        (Post.error_message.like('%429%') | 
+        Post.error_message.like('%Too Many Requests%') |
+        Post.error_message.like('%rate limit%')) &
+        # Only check errors from the last hour
+        (Post.processed_at > (datetime.utcnow() - timedelta(hours=1)))
     ).count()
     
-    # If we have any rate limit errors in the database, consider Twitter rate limited
-    if rate_limit_errors > 0:
+    # If we have any recent rate limit errors, consider Twitter rate limited
+    if rate_limit_errors > 0 and not twitter_rate_limited:
         twitter_rate_limited = True
+        # Store this status
+        SystemStatus.set_bool('twitter_rate_limited', True)
+        # Set rate limit expiration time to 1 hour from now if not already set
+        if not rate_limit_until:
+            one_hour_later = (datetime.utcnow() + timedelta(hours=1)).isoformat()
+            SystemStatus.set_str('twitter_rate_limit_until', one_hour_later)
+            logger.warning(f"Setting Twitter rate limit until: {one_hour_later}")
     
     # Also try to directly check Twitter status
     try:
@@ -77,14 +107,24 @@ def index():
         # Check if Twitter API is currently rate limited
         if test_client.is_rate_limited():
             twitter_rate_limited = True
-            logger.warning("Twitter rate limit detected - API is returning 429 errors")
+            # Store this status
+            SystemStatus.set_bool('twitter_rate_limited', True)
+            # Set rate limit expiration time to 1 hour from now
+            one_hour_later = (datetime.utcnow() + timedelta(hours=1)).isoformat()
+            SystemStatus.set_str('twitter_rate_limit_until', one_hour_later)
+            logger.warning(f"Twitter rate limit detected - API is returning 429 errors. Will retry after: {one_hour_later}")
     except Exception as e:
-        # If we can't even create the client, something is wrong with Twitter
-        # But we don't want to crash the dashboard, so just log the error
-        logger.error(f"Error checking Twitter status: {str(e)}")
-        twitter_rate_limited = True
-    
-    logger.warning(f"Twitter rate limit flag set to: {twitter_rate_limited}")
+        logger.error(f"Error checking Twitter status: {e}")
+        # If we get an exception that contains rate limit errors, mark as rate limited
+        error_str = str(e).lower()
+        if "429" in error_str or "too many requests" in error_str or "rate limit" in error_str:
+            twitter_rate_limited = True
+            # Store this status
+            SystemStatus.set_bool('twitter_rate_limited', True)
+            # Set rate limit expiration time to 1 hour from now
+            one_hour_later = (datetime.utcnow() + timedelta(hours=1)).isoformat()
+            SystemStatus.set_str('twitter_rate_limit_until', one_hour_later)
+            logger.warning(f"Twitter rate limit flag set to: {twitter_rate_limited} until {one_hour_later}")
     
     return render_template('index.html', 
                           total_posts=total_posts,

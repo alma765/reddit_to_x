@@ -1,6 +1,57 @@
 from datetime import datetime
 from app import db
 
+
+class SystemStatus(db.Model):
+    """Model for tracking system status flags"""
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(50), unique=True, nullable=False)
+    value = db.Column(db.String(255), nullable=True)
+    value_bool = db.Column(db.Boolean, default=False)
+    value_int = db.Column(db.Integer, nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    @classmethod
+    def get_bool(cls, key, default=False):
+        """Get a boolean value from the system status table"""
+        record = db.session.query(cls).filter_by(key=key).first()
+        if record is None:
+            return default
+        return record.value_bool
+    
+    @classmethod
+    def set_bool(cls, key, value):
+        """Set a boolean value in the system status table"""
+        record = db.session.query(cls).filter_by(key=key).first()
+        if record is None:
+            record = cls(key=key, value_bool=value)
+        else:
+            record.value_bool = value
+        db.session.add(record)
+        db.session.commit()
+        return record
+    
+    @classmethod
+    def get_str(cls, key, default=None):
+        """Get a string value from the system status table"""
+        record = db.session.query(cls).filter_by(key=key).first()
+        if record is None:
+            return default
+        return record.value
+    
+    @classmethod
+    def set_str(cls, key, value):
+        """Set a string value in the system status table"""
+        record = db.session.query(cls).filter_by(key=key).first()
+        if record is None:
+            record = cls(key=key, value=value)
+        else:
+            record.value = value
+        db.session.add(record)
+        db.session.commit()
+        return record
+
+
 class Post(db.Model):
     """Model for tracking Reddit posts processed by the bot"""
     id = db.Column(db.Integer, primary_key=True)
