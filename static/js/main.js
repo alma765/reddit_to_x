@@ -68,10 +68,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 // Update stats
                 const statBoxes = document.querySelectorAll('.stat-box h3');
-                if (statBoxes.length >= 3) {
+                if (statBoxes.length >= 4) {
                     statBoxes[0].textContent = data.total_posts || 0;
                     statBoxes[1].textContent = data.successful_posts || 0;
-                    statBoxes[2].textContent = data.failed_posts || 0;
+                    statBoxes[2].textContent = data.duplicate_posts || 0;
+                    statBoxes[3].textContent = (data.failed_posts || 0) - (data.duplicate_posts || 0);
                 }
                 
                 // Update progress bar

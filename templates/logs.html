@@ -51,6 +51,10 @@
                                class="btn btn-outline-danger {{ 'active' if current_filter == 'failed' }}">
                                 Failed
                             </a>
+                            <a href="{{ url_for('logs', filter='duplicates', subreddit=current_subreddit) }}" 
+                               class="btn btn-outline-secondary {{ 'active' if current_filter == 'duplicates' }}">
+                                Duplicates
+                            </a>
                             <a href="{{ url_for('logs', filter='pending', subreddit=current_subreddit) }}" 
                                class="btn btn-outline-warning {{ 'active' if current_filter == 'pending' }}">
                                 Pending
@@ -89,7 +93,9 @@
                                     </a>
                                 </td>
                                 <td>
-                                    {% if post.error %}
+                                    {% if post.error and 'Duplicate' in post.error_message %}
+                                    <span class="badge bg-secondary">Duplicate</span>
+                                    {% elif post.error %}
                                     <span class="badge bg-danger">Failed</span>
                                     {% elif post.posted_to_twitter %}
                                     <a href="{{ post.twitter_post_url }}" target="_blank" class="badge bg-success">Posted</a>

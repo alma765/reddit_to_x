@@ -45,6 +45,7 @@ def index():
     total_posts = db.session.query(Post).count()
     successful_posts = db.session.query(Post).filter_by(posted_to_twitter=True).count()
     failed_posts = db.session.query(Post).filter_by(error=True).count()
+    duplicate_posts = db.session.query(Post).filter(Post.error_message.like('%Duplicate%')).count()
     
     # Get latest posts
     latest_posts = db.session.query(Post).order_by(Post.created_at.desc()).limit(5).all()
@@ -57,6 +58,7 @@ def index():
                           total_posts=total_posts,
                           successful_posts=successful_posts,
                           failed_posts=failed_posts,
+                          duplicate_posts=duplicate_posts,
                           latest_posts=latest_posts,
                           subreddits=SUBREDDITS,
                           post_interval=POST_INTERVAL_MINUTES,
@@ -114,6 +116,7 @@ def api_status():
         total_posts = db.session.query(Post).count()
         successful_posts = db.session.query(Post).filter_by(posted_to_twitter=True).count()
         failed_posts = db.session.query(Post).filter_by(error=True).count()
+        duplicate_posts = db.session.query(Post).filter(Post.error_message.like('%Duplicate%')).count()
         in_progress = total_posts - successful_posts - failed_posts
         
         return jsonify({
@@ -121,6 +124,8 @@ def api_status():
             'total_posts': total_posts,
             'successful_posts': successful_posts,
             'failed_posts': failed_posts,
+            'duplicate_posts': duplicate_posts,
+            'error_posts': failed_posts - duplicate_posts,
             'in_progress': in_progress,
             'success_rate': (successful_posts / total_posts * 100) if total_posts > 0 else 0
         })
@@ -131,6 +136,8 @@ def api_status():
             'total_posts': 0,
             'successful_posts': 0,
             'failed_posts': 0,
+            'duplicate_posts': 0,
+            'error_posts': 0,
             'in_progress': 0,
             'success_rate': 0,
             'error': str(e)

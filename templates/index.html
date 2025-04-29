@@ -107,21 +107,27 @@
                     </div>
                     <div class="card-body">
                         <div class="row text-center">
-                            <div class="col-4">
+                            <div class="col-3">
                                 <div class="stat-box">
                                     <h3>{{ total_posts }}</h3>
                                     <p>Total Posts</p>
                                 </div>
                             </div>
-                            <div class="col-4">
+                            <div class="col-3">
                                 <div class="stat-box">
                                     <h3>{{ successful_posts }}</h3>
                                     <p>Successful</p>
                                 </div>
                             </div>
-                            <div class="col-4">
+                            <div class="col-3">
                                 <div class="stat-box">
-                                    <h3>{{ failed_posts }}</h3>
+                                    <h3>{{ duplicate_posts }}</h3>
+                                    <p>Duplicates</p>
+                                </div>
+                            </div>
+                            <div class="col-3">
+                                <div class="stat-box">
+                                    <h3>{{ failed_posts - duplicate_posts }}</h3>
                                     <p>Failed</p>
                                 </div>
                             </div>
@@ -186,7 +192,9 @@
                                     </a>
                                 </td>
                                 <td>
-                                    {% if post.error %}
+                                    {% if post.error and 'Duplicate' in post.error_message %}
+                                    <span class="badge bg-secondary">Duplicate</span>
+                                    {% elif post.error %}
                                     <span class="badge bg-danger">Failed</span>
                                     {% elif post.posted_to_twitter %}
                                     <a href="{{ post.twitter_post_url }}" target="_blank" class="badge bg-success">Posted</a>
