@@ -37,16 +37,17 @@ class RedditClient:
         )
         logger.info(f"Reddit client initialized for subreddits: {', '.join(SUBREDDITS)}")
     
-    def fetch_videos(self, subreddits=None, limit=None):
+    def fetch_content(self, subreddits=None, limit=None, content_type="video"):
         """
-        Fetch video posts from specified subreddits
+        Fetch posts from specified subreddits based on content type
         
         Args:
             subreddits (list): List of subreddit names to fetch from
             limit (int): Number of posts to fetch per subreddit
+            content_type (str): Type of content to fetch ("video", "image", or "all")
             
         Returns:
-            list: List of submission objects containing videos
+            list: List of submission objects containing requested content
         """
         if subreddits is None:
             subreddits = SUBREDDITS
@@ -54,9 +55,9 @@ class RedditClient:
         if limit is None:
             limit = POSTS_LIMIT
             
-        logger.info(f"Fetching videos from {', '.join(subreddits)}")
+        logger.info(f"Fetching {content_type} posts from {', '.join(subreddits)}")
         
-        video_posts = []
+        content_posts = []
         
         for subreddit_name in subreddits:
             try:
@@ -69,19 +70,40 @@ class RedditClient:
                     logger.info(f"Checking submission: {submission.id} - {submission.title}")
                     
                     has_video = self._has_video(submission)
-                    if has_video:
+                    has_image = self._has_image(submission)
+                    
+                    if content_type == "video" and has_video:
                         logger.info(f"Found video: {submission.title} in r/{subreddit_name}")
-                        video_posts.append(submission)
+                        content_posts.append(submission)
+                    elif content_type == "image" and has_image:
+                        logger.info(f"Found image: {submission.title} in r/{subreddit_name}")
+                        content_posts.append(submission)
+                    elif content_type == "all" and (has_video or has_image):
+                        logger.info(f"Found content: {submission.title} in r/{subreddit_name}")
+                        content_posts.append(submission)
                     else:
-                        logger.info(f"No video found in submission: {submission.id}")
+                        logger.info(f"No matching content found in submission: {submission.id}")
                 
-                logger.info(f"Checked {submission_count} submissions, found {len(video_posts)} videos")
+                logger.info(f"Checked {submission_count} submissions, found {len(content_posts)} matching posts")
                 
             except Exception as e:
                 logger.error(f"Error fetching from r/{subreddit_name}: {str(e)}")
         
-        logger.info(f"Found {len(video_posts)} video posts across all subreddits")
-        return video_posts
+        logger.info(f"Found {len(content_posts)} {content_type} posts across all subreddits")
+        return content_posts
+        
+    def fetch_videos(self, subreddits=None, limit=None):
+        """
+        Fetch video posts from specified subreddits (legacy method)
+        
+        Args:
+            subreddits (list): List of subreddit names to fetch from
+            limit (int): Number of posts to fetch per subreddit
+            
+        Returns:
+            list: List of submission objects containing videos
+        """
+        return self.fetch_content(subreddits, limit, content_type="video")
 
     def _has_video(self, submission):
         """
@@ -124,6 +146,48 @@ class RedditClient:
         if 'imgur.com' in url and (any(ext in url for ext in video_extensions) or '/a/' not in url):
             return True
         
+        return False
+        
+    def _has_image(self, submission):
+        """
+        Check if a submission has an image attached
+        
+        Args:
+            submission: Reddit submission object
+            
+        Returns:
+            bool: True if submission has an image, False otherwise
+        """
+        # Return False if it has a video (we prefer to handle it as a video)
+        if self._has_video(submission):
+            return False
+            
+        # Get URL for checking
+        url = submission.url.lower()
+        
+        # Check common image extensions
+        image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
+        if any(url.endswith(ext) for ext in image_extensions):
+            return True
+            
+        # Check Reddit's gallery posts
+        if hasattr(submission, 'is_gallery') and submission.is_gallery:
+            return True
+            
+        # Check for Imgur image links
+        if 'imgur.com' in url and '/a/' not in url:
+            # If it's not already identified as a video (checked above)
+            # and it's an imgur link, it's likely an image
+            return True
+            
+        # Check for Reddit image previews
+        if hasattr(submission, 'preview') and submission.preview:
+            try:
+                if 'images' in submission.preview and len(submission.preview['images']) > 0:
+                    return True
+            except:
+                pass
+                
         return False
     
     def get_video_url(self, submission):
