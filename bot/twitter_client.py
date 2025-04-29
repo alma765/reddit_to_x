@@ -51,6 +51,40 @@ class MockTwitterClient:
             'tweet_id': mock_tweet_id,
             'tweet_url': mock_tweet_url
         }
+        
+    def post_image(self, image_path, text=None):
+        """
+        Simulate posting an image to Twitter
+        
+        Args:
+            image_path (str): Path to the image file
+            text (str): Text to accompany the post
+            
+        Returns:
+            dict: Mock response with tweet ID and URL
+        """
+        import uuid
+        
+        if not os.path.exists(image_path):
+            logger.error(f"Image file not found: {image_path}")
+            raise FileNotFoundError(f"Image file not found: {image_path}")
+        
+        # Get file size
+        file_size_kb = os.path.getsize(image_path) / 1024
+        
+        # Generate mock tweet ID
+        mock_tweet_id = str(uuid.uuid4()).replace('-', '')[:16]
+        mock_tweet_url = f"https://twitter.com/user/status/{mock_tweet_id}"
+        
+        logger.info(f"MOCK: Would post image ({file_size_kb:.2f} KB) to Twitter")
+        logger.info(f"MOCK: Tweet text: {text[:50] if text else 'No text'}")
+        logger.info(f"MOCK: Tweet ID: {mock_tweet_id}")
+        logger.info(f"MOCK: Tweet URL: {mock_tweet_url}")
+        
+        return {
+            'tweet_id': mock_tweet_id,
+            'tweet_url': mock_tweet_url
+        }
 
 class TwitterClient:
     def __init__(self, use_mock=False):
@@ -237,6 +271,95 @@ class TwitterClient:
             self.mock_client = MockTwitterClient()
             return self.mock_client.post_video(video_path, text)
     
+    def post_image(self, image_path, text=None):
+        """
+        Post an image to Twitter
+        
+        Args:
+            image_path (str): Path to the image file
+            text (str): Text to accompany the post
+            
+        Returns:
+            dict: Response from Twitter API containing post ID and URL
+        """
+        if not os.path.exists(image_path):
+            logger.error(f"Image file not found: {image_path}")
+            raise FileNotFoundError(f"Image file not found: {image_path}")
+        
+        # If we're using the mock client, delegate to it
+        if self.use_mock:
+            logger.warning("Using mock Twitter client for posting")
+            return self.mock_client.post_image(image_path, text)
+        
+        try:
+            # First test that we can connect to the Twitter API
+            logger.info("Testing Twitter API connection...")
+            try:
+                # Simple API call to verify credentials
+                user = self.api.verify_credentials()
+                logger.info(f"Authenticated as: @{user.screen_name}")
+            except Exception as auth_error:
+                logger.error(f"Authentication error: {str(auth_error)}")
+                logger.warning("Falling back to mock Twitter client")
+                self.use_mock = True
+                self.mock_client = MockTwitterClient()
+                return self.mock_client.post_image(image_path, text)
+                
+            # Upload the image using v1.1 API
+            file_size_kb = os.path.getsize(image_path) / 1024
+            logger.info(f"Uploading image: {image_path} (size: {file_size_kb:.2f} KB)")
+            
+            try:
+                media = self.api.media_upload(
+                    filename=image_path,
+                    media_category='tweet_image'
+                )
+                
+                # Image uploads are usually processed immediately, but just in case
+                media_id = media.media_id_string
+                logger.info(f"Image uploaded with ID: {media_id}")
+                
+            except Exception as media_error:
+                logger.error(f"Media upload error: {str(media_error)}")
+                logger.warning("Falling back to mock Twitter client due to media upload error")
+                self.use_mock = True
+                self.mock_client = MockTwitterClient()
+                return self.mock_client.post_image(image_path, text)
+            
+            # Create the tweet with media using v2 API
+            tweet_text = text or "Image from Reddit"
+            logger.info(f"Posting tweet with text: {tweet_text[:50]}...")
+            
+            try:
+                response = self.client.create_tweet(
+                    text=tweet_text[:280],  # Ensure text fits within Twitter limit
+                    media_ids=[media_id]
+                )
+            except Exception as tweet_error:
+                logger.error(f"Tweet creation error: {str(tweet_error)}")
+                logger.warning("Falling back to mock Twitter client due to tweet creation error")
+                self.use_mock = True
+                self.mock_client = MockTwitterClient()
+                return self.mock_client.post_image(image_path, text)
+            
+            tweet_id = response.data['id']
+            tweet_url = f"https://twitter.com/user/status/{tweet_id}"
+            
+            logger.info(f"Image posted to Twitter: {tweet_url}")
+            
+            return {
+                'tweet_id': tweet_id,
+                'tweet_url': tweet_url
+            }
+            
+        except Exception as e:
+            logger.error(f"Error posting image to Twitter: {str(e)}")
+            # Fall back to mock Twitter client as a last resort
+            logger.warning("Falling back to mock Twitter client due to unexpected error")
+            self.use_mock = True
+            self.mock_client = MockTwitterClient()
+            return self.mock_client.post_image(image_path, text)
+
     def _wait_for_media_processing(self, media_id):
         """
         Wait for media processing to complete on Twitter

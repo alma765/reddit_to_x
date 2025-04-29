@@ -470,6 +470,110 @@ class RedditClient:
                         pass
             return None
     
+    def get_image_url(self, submission):
+        """
+        Extract the direct image URL from a Reddit submission
+        
+        Args:
+            submission: Reddit submission object
+            
+        Returns:
+            str: Direct URL to the image or None if not found
+        """
+        # If it's already a direct image URL, return it
+        url = submission.url.lower()
+        image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
+        if any(url.endswith(ext) for ext in image_extensions):
+            return submission.url
+            
+        # Check for Reddit gallery
+        if hasattr(submission, 'is_gallery') and submission.is_gallery:
+            # Get the first image from the gallery
+            try:
+                if hasattr(submission, 'media_metadata') and submission.media_metadata:
+                    for media_id in submission.media_metadata:
+                        item = submission.media_metadata[media_id]
+                        if item['e'] == 'Image':  # 'e' stands for 'extension'
+                            if 's' in item and 'u' in item['s']:  # 's' is source, 'u' is URL
+                                return item['s']['u']
+            except Exception as e:
+                logger.error(f"Error extracting gallery image: {str(e)}")
+                
+        # Check for Reddit image previews
+        if hasattr(submission, 'preview') and submission.preview:
+            try:
+                if 'images' in submission.preview and len(submission.preview['images']) > 0:
+                    for resolution in ['source', 'resolutions']:
+                        if resolution in submission.preview['images'][0]:
+                            if 'url' in submission.preview['images'][0][resolution]:
+                                return submission.preview['images'][0][resolution]['url']
+            except Exception as e:
+                logger.error(f"Error extracting preview image: {str(e)}")
+                
+        # Special handling for Imgur links that aren't direct image links
+        if 'imgur.com' in url and not any(url.endswith(ext) for ext in image_extensions):
+            # Try to convert to direct image link
+            if '/a/' not in url and '/gallery/' not in url:  # Not an album
+                # Strip query parameters
+                url = url.split('?')[0]
+                # Remove trailing slash if present
+                if url.endswith('/'):
+                    url = url[:-1]
+                # Add file extension
+                if not any(ext in url for ext in image_extensions):
+                    url += '.jpg'  # Default to jpg
+                return url
+                
+        # Fallback: return the original URL and hope for the best
+        return submission.url
+        
+    def download_image(self, image_url, download_path):
+        """
+        Download an image from a URL to the specified path
+        
+        Args:
+            image_url (str): URL of the image to download
+            download_path (str): Path where the image should be saved
+            
+        Returns:
+            str: Path to the downloaded image or None if download failed
+        """
+        try:
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(download_path), exist_ok=True)
+            
+            # Download the image
+            logger.info(f"Downloading image from {image_url} to {download_path}")
+            
+            # Unquote the URL to handle HTML-encoded characters
+            image_url = html.unescape(image_url)
+            
+            response = requests.get(image_url, stream=True, headers={'User-Agent': REDDIT_USER_AGENT})
+            response.raise_for_status()
+            
+            # Save the image
+            with open(download_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+                    
+            # Verify the image was downloaded correctly
+            if os.path.getsize(download_path) == 0:
+                logger.error(f"Downloaded image is empty: {download_path}")
+                os.remove(download_path)
+                return None
+                
+            logger.info(f"Successfully downloaded image to {download_path}")
+            return download_path
+            
+        except Exception as e:
+            logger.error(f"Error downloading image from {image_url}: {str(e)}")
+            if os.path.exists(download_path):
+                try:
+                    os.remove(download_path)
+                except:
+                    pass
+            return None
+            
     def extract_post_metadata(self, submission):
         """
         Extract useful metadata from a Reddit submission, including cleaned title
@@ -480,6 +584,11 @@ class RedditClient:
         Returns:
             dict: Dictionary containing post metadata
         """
+        # Determine content type
+        is_video = self._has_video(submission)
+        is_image = self._has_image(submission)
+        content_type = 'video' if is_video else ('image' if is_image else 'text')
+        
         # Get basic submission info
         metadata = {
             'reddit_id': submission.id,
@@ -495,6 +604,7 @@ class RedditClient:
             'num_comments': submission.num_comments,
             'is_nsfw': submission.over_18,
             'is_original_content': submission.is_original_content if hasattr(submission, 'is_original_content') else False,
+            'content_type': content_type,
         }
         
         # Extract flair information if available
