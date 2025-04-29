@@ -102,15 +102,18 @@ def process_and_post():
                 content_type = "image"
                 media_url = reddit_client.get_image_url(submission)
             
-            if not media_url:
+            # For galleries, we don't need a media_url as we'll get all images separately
+            if not media_url and content_type != "gallery":
                 logger.warning(f"Could not extract media URL for {submission.id}")
                 continue
                 
-            # Check for similar content by URL pattern to avoid duplicate content with different IDs
-            media_url_pattern = media_url.split('?')[0]  # Remove query parameters
-            similar_posts = db.session.query(Post).filter(
-                Post.reddit_url.like(f"%{media_url_pattern}%")
-            ).first()
+            # For non-gallery posts, check for similar content by URL pattern
+            similar_posts = None
+            if content_type != "gallery" and media_url:
+                media_url_pattern = media_url.split('?')[0]  # Remove query parameters
+                similar_posts = db.session.query(Post).filter(
+                    Post.reddit_url.like(f"%{media_url_pattern}%")
+                ).first()
             
             if similar_posts:
                 logger.warning(f"Skipping submission {submission.id} with similar {content_type} URL pattern")
@@ -314,6 +317,64 @@ def process_and_post():
                 elif content_type == "image":
                     tweet_result = twitter_client.post_image(downloaded_path, post_text)
                     logger.info(f"Successfully posted image from {submission.id} to Twitter")
+                elif content_type == "gallery":
+                    # Process gallery post
+                    logger.info(f"Processing gallery post for {submission.id}")
+                    
+                    # Generate a base filename for gallery images
+                    base_image_path = video_processor.generate_filename(submission.id, extension="")
+                    
+                    # Download all gallery images
+                    gallery_image_paths = reddit_client.download_gallery_images(submission, base_image_path)
+                    
+                    if not gallery_image_paths:
+                        post.error = True
+                        post.error_message = "Failed to download gallery images"
+                        db.session.add(post)
+                        db.session.commit()
+                        logger.warning(f"Failed to download gallery images for {submission.id}")
+                        continue
+                    
+                    # Store the path to the first image in the post record
+                    post.image_path = gallery_image_paths[0]
+                    post.image_size_bytes = os.path.getsize(gallery_image_paths[0])
+                    
+                    # Set first image metadata in post record
+                    if len(gallery_image_paths) > 1:
+                        # Indicate it's one of multiple images
+                        logger.info(f"Posting gallery with {len(gallery_image_paths)} images as a Twitter thread")
+                        
+                        # Create tweet texts for the thread (first tweet uses main text)
+                        continue_texts = []
+                        for i in range(1, len(gallery_image_paths)):
+                            # Create a continuation tweet text
+                            continue_texts.append(f"{post_text} ({i+1}/{len(gallery_image_paths)})")
+                        
+                        # Create a thread with all gallery images
+                        thread_result = twitter_client.create_thread_with_images(
+                            gallery_image_paths,
+                            main_text=post_text,
+                            continue_texts=continue_texts
+                        )
+                        
+                        if thread_result.get('success'):
+                            tweet_result = {
+                                'tweet_id': thread_result['first_tweet_id'],
+                                'tweet_url': thread_result['first_tweet_url']
+                            }
+                            logger.info(f"Successfully posted gallery thread with {len(gallery_image_paths)} images from {submission.id} to Twitter")
+                        else:
+                            # If thread creation failed, log error and continue
+                            post.error = True
+                            post.error_message = f"Failed to create Twitter thread: {thread_result.get('error', 'Unknown error')}"
+                            db.session.add(post)
+                            db.session.commit()
+                            logger.error(f"Failed to create Twitter thread for gallery {submission.id}")
+                            continue
+                    else:
+                        # If there's only one image, post normally
+                        tweet_result = twitter_client.post_image(gallery_image_paths[0], post_text)
+                        logger.info(f"Posted single image from gallery {submission.id} to Twitter")
                 
                 # Update post with Twitter info
                 post.posted_to_twitter = True

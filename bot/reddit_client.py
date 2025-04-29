@@ -585,9 +585,18 @@ class RedditClient:
             dict: Dictionary containing post metadata
         """
         # Determine content type
+        is_gallery = hasattr(submission, 'is_gallery') and submission.is_gallery
         is_video = self._has_video(submission)
         is_image = self._has_image(submission)
-        content_type = 'video' if is_video else ('image' if is_image else 'text')
+        
+        if is_gallery:
+            content_type = 'gallery'
+        elif is_video:
+            content_type = 'video'
+        elif is_image:
+            content_type = 'image'
+        else:
+            content_type = 'text'
         
         # Get basic submission info
         metadata = {
@@ -693,6 +702,14 @@ class RedditClient:
         # Add flair if relevant
         if metadata['flair'] and metadata['flair'].lower() not in ['video', 'media', 'post']:
             tweet += f" [{metadata['flair']}]"
+            
+        # Add content type indicator
+        if metadata['content_type'] == 'video':
+            tweet += " [Video]"
+        elif metadata['content_type'] == 'image':
+            tweet += " [Photo]"
+        elif metadata['content_type'] == 'gallery':
+            tweet += " [Gallery]"
         
         return tweet
 
