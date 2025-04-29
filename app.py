@@ -40,6 +40,7 @@ from config import SUBREDDITS, POST_INTERVAL_MINUTES, REDDIT_CLIENT_ID, TWITTER_
 def index():
     """Homepage displaying bot status and configuration"""
     from models import Post
+    from bot.twitter_client import TwitterClient
     
     # Get basic stats
     total_posts = db.session.query(Post).count()
@@ -58,11 +59,36 @@ def index():
     reddit_configured = bool(REDDIT_CLIENT_ID)
     twitter_configured = bool(TWITTER_API_KEY)
     
+    # Check for Twitter rate limiting by looking at recent errors
+    twitter_rate_limited = False
+    rate_limit_errors = db.session.query(Post).filter(
+        Post.error_message.like('%429%') | 
+        Post.error_message.like('%Too Many Requests%')
+    ).count()
+    
+    # If we have any rate limit errors in the database, consider Twitter rate limited
+    if rate_limit_errors > 0:
+        twitter_rate_limited = True
+    
+    # Also try to directly check Twitter status
+    try:
+        # Make a test Twitter client
+        test_client = TwitterClient(use_mock=False)
+        # If the client is using mock mode despite explicitly requesting real client,
+        # then there might be authentication issues or rate limiting
+        if test_client.is_mock:
+            twitter_rate_limited = True
+    except Exception:
+        # If we can't even create the client, something is wrong with Twitter
+        # But we don't want to crash the dashboard, so just ignore errors
+        pass
+    
     return render_template('index.html', 
                           total_posts=total_posts,
                           successful_posts=successful_posts,
                           failed_posts=failed_posts,
                           duplicate_posts=duplicate_posts,
+                          twitter_rate_limited=twitter_rate_limited,
                           video_posts=video_posts,
                           image_posts=image_posts,
                           latest_posts=latest_posts,
@@ -141,6 +167,13 @@ def api_status():
         video_success = db.session.query(Post).filter_by(content_type='video', posted_to_twitter=True).count()
         image_success = db.session.query(Post).filter_by(content_type='image', posted_to_twitter=True).count()
         
+        # Check for Twitter rate limit errors
+        rate_limit_errors = db.session.query(Post).filter(
+            Post.error_message.like('%429%') | 
+            Post.error_message.like('%Too Many Requests%')
+        ).count()
+        twitter_rate_limited = rate_limit_errors > 0
+        
         return jsonify({
             'status': 'running' if scheduler.running else 'stopped',
             'total_posts': total_posts,
@@ -148,6 +181,7 @@ def api_status():
             'failed_posts': failed_posts,
             'duplicate_posts': duplicate_posts,
             'error_posts': failed_posts - duplicate_posts,
+            'twitter_rate_limited': twitter_rate_limited,
             'in_progress': in_progress,
             'success_rate': (successful_posts / total_posts * 100) if total_posts > 0 else 0,
             'content_types': {
