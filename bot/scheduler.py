@@ -352,8 +352,9 @@ def process_and_post():
                             base_text = post_text
                             base_text = base_text.replace(" [Photo]", "").replace(" [Gallery]", "").replace(" [Video]", "")
                             
-                            # Add simple continuation
-                            continue_texts.append(f"Continued ({i+1}/{len(gallery_image_paths)})")
+                            # Add clear numbering for gallery images
+                            # Always show the current image number and total count
+                            continue_texts.append(f"Image {i+1}/{len(gallery_image_paths)}")
                         
                         # Create a thread with all gallery images
                         thread_result = twitter_client.create_thread_with_images(
