@@ -14,7 +14,10 @@ logger = logging.getLogger(__name__)
 
 class TwitterClient:
     def __init__(self):
-        """Initialize Twitter API client using Tweepy"""        
+        """Initialize Twitter API client using Tweepy"""
+        # Import here to avoid circular imports
+        from models import SystemStatus
+        self.SystemStatus = SystemStatus        
         if not all([TWITTER_API_KEY, TWITTER_API_KEY_SECRET, 
                    TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET]):
             error_msg = "Twitter API credentials are missing"
