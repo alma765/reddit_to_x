@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+import tweepy  # Import tweepy for rate limit exception handling
 
 from app import db
 from models import Post
@@ -309,20 +310,84 @@ def process_and_post():
                 
                 logger.info(f"Using tweet text: {post_text}")
                 
-                # Post to Twitter based on content type
+                # We have already imported tweepy at the top of the file
+                    
+                # Initialize tweet_result variable
+                tweet_result = None
+                
+                # Process based on content type and post to Twitter
                 try:
                     if content_type == "video":
+                        # Post video
                         tweet_result = twitter_client.post_video(downloaded_path, post_text)
                         logger.info(f"Successfully posted video from {submission.id} to Twitter")
+                        
                     elif content_type == "image":
+                        # Post single image 
                         tweet_result = twitter_client.post_image(downloaded_path, post_text)
                         logger.info(f"Successfully posted image from {submission.id} to Twitter")
+                        
                     elif content_type == "gallery":
                         # Process gallery post
                         logger.info(f"Processing gallery post for {submission.id}")
-                except tweepy.TweepyException as e:
+                        
+                        # Generate a base filename for gallery images
+                        base_image_path = video_processor.generate_filename(submission.id, extension="")
+                        
+                        # Download all gallery images
+                        gallery_image_paths = reddit_client.download_gallery_images(submission, base_image_path)
+                        
+                        if not gallery_image_paths:
+                            post.error = True
+                            post.error_message = "Failed to download gallery images"
+                            post.processed_at = datetime.utcnow()
+                            db.session.add(post)
+                            db.session.commit()
+                            logger.warning(f"Failed to download gallery images for {submission.id}")
+                            continue
+                        
+                        # Store the path to the first image in the post record
+                        post.image_path = gallery_image_paths[0]
+                        post.image_size_bytes = os.path.getsize(gallery_image_paths[0])
+                        
+                        # Set first image metadata in post record
+                        if len(gallery_image_paths) > 1:
+                            # Indicate it's one of multiple images
+                            logger.info(f"Posting gallery with {len(gallery_image_paths)} images as a Twitter thread")
+                            
+                            # Create tweet texts for the thread (first tweet uses main text)
+                            continue_texts = []
+                            for i in range(1, len(gallery_image_paths)):
+                                # Create a simplified continuation tweet text
+                                # Strip any content type indicators first
+                                base_text = post_text
+                                base_text = base_text.replace(" [Photo]", "").replace(" [Gallery]", "").replace(" [Video]", "")
+                                
+                                # Add clear numbering for gallery images
+                                # Always show the current image number and total count
+                                continue_texts.append(f"Image {i+1}/{len(gallery_image_paths)}")
+                            
+                            # Create a thread with all gallery images
+                            thread_result = twitter_client.create_thread_with_images(
+                                gallery_image_paths,
+                                main_text=post_text,
+                                continue_texts=continue_texts
+                            )
+                            
+                            tweet_result = {
+                                'tweet_id': thread_result['first_tweet_id'],
+                                'tweet_url': thread_result['first_tweet_url']
+                            }
+                            logger.info(f"Successfully posted gallery thread with {len(gallery_image_paths)} images from {submission.id} to Twitter")
+                        else:
+                            # If there's only one image, post normally
+                            tweet_result = twitter_client.post_image(gallery_image_paths[0], post_text)
+                            logger.info(f"Posted single image from gallery {submission.id} to Twitter")
+                
+                except Exception as e:
                     error_msg = str(e)
-                    # Handle Twitter rate limits
+                    
+                    # Check for Twitter rate limit errors
                     if "429" in error_msg or "Too Many Requests" in error_msg or "rate limit" in error_msg.lower():
                         post.error = True
                         post.error_message = "Twitter rate limit reached. Will retry in 60 minutes."
@@ -341,69 +406,16 @@ def process_and_post():
                         db.session.commit()
                         logger.error(f"Twitter API error when posting {content_type} for {submission.id}: {error_msg}")
                         continue
-                    # Process gallery post
-                    logger.info(f"Processing gallery post for {submission.id}")
-                    
-                    # Generate a base filename for gallery images
-                    base_image_path = video_processor.generate_filename(submission.id, extension="")
-                    
-                    # Download all gallery images
-                    gallery_image_paths = reddit_client.download_gallery_images(submission, base_image_path)
-                    
-                    if not gallery_image_paths:
-                        post.error = True
-                        post.error_message = "Failed to download gallery images"
-                        db.session.add(post)
-                        db.session.commit()
-                        logger.warning(f"Failed to download gallery images for {submission.id}")
-                        continue
-                    
-                    # Store the path to the first image in the post record
-                    post.image_path = gallery_image_paths[0]
-                    post.image_size_bytes = os.path.getsize(gallery_image_paths[0])
-                    
-                    # Set first image metadata in post record
-                    if len(gallery_image_paths) > 1:
-                        # Indicate it's one of multiple images
-                        logger.info(f"Posting gallery with {len(gallery_image_paths)} images as a Twitter thread")
                         
-                        # Create tweet texts for the thread (first tweet uses main text)
-                        continue_texts = []
-                        for i in range(1, len(gallery_image_paths)):
-                            # Create a simplified continuation tweet text
-                            # Strip any content type indicators first
-                            base_text = post_text
-                            base_text = base_text.replace(" [Photo]", "").replace(" [Gallery]", "").replace(" [Video]", "")
-                            
-                            # Add clear numbering for gallery images
-                            # Always show the current image number and total count
-                            continue_texts.append(f"Image {i+1}/{len(gallery_image_paths)}")
-                        
-                        # Create a thread with all gallery images
-                        thread_result = twitter_client.create_thread_with_images(
-                            gallery_image_paths,
-                            main_text=post_text,
-                            continue_texts=continue_texts
-                        )
-                        
-                        if thread_result.get('success'):
-                            tweet_result = {
-                                'tweet_id': thread_result['first_tweet_id'],
-                                'tweet_url': thread_result['first_tweet_url']
-                            }
-                            logger.info(f"Successfully posted gallery thread with {len(gallery_image_paths)} images from {submission.id} to Twitter")
-                        else:
-                            # If thread creation failed, log error and continue
-                            post.error = True
-                            post.error_message = f"Failed to create Twitter thread: {thread_result.get('error', 'Unknown error')}"
-                            db.session.add(post)
-                            db.session.commit()
-                            logger.error(f"Failed to create Twitter thread for gallery {submission.id}")
-                            continue
-                    else:
-                        # If there's only one image, post normally
-                        tweet_result = twitter_client.post_image(gallery_image_paths[0], post_text)
-                        logger.info(f"Posted single image from gallery {submission.id} to Twitter")
+                # Check if we got a valid tweet result
+                if not tweet_result:
+                    post.error = True
+                    post.error_message = "Failed to get Twitter post result"
+                    post.processed_at = datetime.utcnow()
+                    db.session.add(post)
+                    db.session.commit()
+                    logger.error(f"No tweet result for {submission.id}")
+                    continue
                 
                 # Update post with Twitter info
                 post.posted_to_twitter = True
