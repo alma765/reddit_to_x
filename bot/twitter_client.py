@@ -14,10 +14,7 @@ logger = logging.getLogger(__name__)
 
 class TwitterClient:
     def __init__(self):
-        """Initialize Twitter API client using Tweepy"""
-        # Import here to avoid circular imports
-        from models import SystemStatus
-        self.SystemStatus = SystemStatus        
+        """Initialize Twitter API client using Tweepy"""        
         if not all([TWITTER_API_KEY, TWITTER_API_KEY_SECRET, 
                    TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET]):
             error_msg = "Twitter API credentials are missing"
@@ -138,6 +135,55 @@ class TwitterClient:
             # Other errors are not rate limit related
             return False
         
+    def _check_database_rate_limit(self):
+        """
+        Check if we're rate-limited according to the database
+        This doesn't make any API calls, just checks our local status
+        
+        Returns:
+            tuple: (is_limited, error_message) - is_limited is True if rate limited,
+                  error_message contains details about the limit if applicable
+        """
+        # Import here to avoid circular import
+        import sys
+        import importlib.util
+        
+        # Import SystemStatus without causing circular imports
+        spec = importlib.util.spec_from_file_location("models", "./models.py")
+        models = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(models)
+        SystemStatus = models.SystemStatus
+        
+        # Check if we're already marked as rate limited
+        twitter_rate_limited = SystemStatus.get_bool('twitter_rate_limited', False)
+        
+        if twitter_rate_limited:
+            rate_limit_until = SystemStatus.get_str('twitter_rate_limit_until', None)
+            if rate_limit_until:
+                import datetime
+                try:
+                    reset_time = rate_limit_until
+                    reset_datetime = datetime.datetime.fromisoformat(reset_time)
+                    now = datetime.datetime.now()
+                    minutes_remaining = max(0, int((reset_datetime - now).total_seconds() / 60))
+                    
+                    # If we're still waiting for rate limit to expire
+                    if minutes_remaining > 0:
+                        error_msg = f"Twitter rate limit reached! Will reset at {reset_time} (in {minutes_remaining} minutes)"
+                        return True, error_msg
+                    else:
+                        # Rate limit has expired, clear the flag
+                        logger.info("Rate limit has expired. Clearing flag.")
+                        SystemStatus.set_bool('twitter_rate_limited', False)
+                        SystemStatus.set_str('twitter_rate_limit_until', None)
+                        return False, None
+                except Exception:
+                    # Default to 24-hour limit if timestamp parsing fails
+                    error_msg = "Twitter rate limit reached! Will retry in 24 hours"
+                    return True, error_msg
+                    
+        return False, None
+        
     def post_video(self, video_path, text=None):
         """
         Post a video to Twitter
@@ -157,11 +203,68 @@ class TwitterClient:
             logger.error(f"Video file not found: {video_path}")
             raise FileNotFoundError(f"Video file not found: {video_path}")
         
-        # First check if we're rate limited
-        if self.is_rate_limited():
-            error_msg = "Twitter rate limit reached! Will retry in 60 minutes"
+        # First check if we're rate limited based on our database status
+        # This doesn't make any API calls, just checks our persistent flag
+        is_limited, error_msg = self._check_database_rate_limit()
+        if is_limited:
             logger.error(error_msg)
             raise tweepy.TweepyException(error_msg)
+            
+        # As a safety check, we'll also check with the API but only very occasionally
+        # The API check is behind a time-based check so we don't waste our quota
+        import datetime
+        import sys
+        import importlib.util
+        
+        # Import SystemStatus without causing circular imports
+        spec = importlib.util.spec_from_file_location("models", "./models.py")
+        models = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(models)
+        SystemStatus = models.SystemStatus
+        
+        last_check_time_str = SystemStatus.get_str('last_twitter_status_check', None)
+        should_check = True
+        
+        if last_check_time_str:
+            try:
+                last_check_time = datetime.datetime.fromisoformat(last_check_time_str)
+                # Only check once per hour to limit API calls
+                if (datetime.datetime.now() - last_check_time).total_seconds() < 3600:  # 1 hour
+                    should_check = False
+                    logger.info(f"Skipping Twitter API status check - last checked at {last_check_time_str}")
+            except Exception:
+                pass
+                
+        if should_check:
+            logger.info("Checking Twitter API rate limit status")
+            # Record that we're making a status check
+            SystemStatus.set_str('last_twitter_status_check', datetime.datetime.now().isoformat())
+            
+            rate_limited = self.is_rate_limited()
+            if rate_limited:
+                # If we're rate limited, rate_limited will be a tuple (True, reset_time)
+                if isinstance(rate_limited, tuple) and len(rate_limited) > 1:
+                    try:
+                        reset_time = rate_limited[1]
+                        reset_datetime = datetime.datetime.fromisoformat(reset_time)
+                        now = datetime.datetime.now()
+                        minutes_remaining = max(0, int((reset_datetime - now).total_seconds() / 60))
+                        error_msg = f"Twitter rate limit reached! Will reset at {reset_time} (in {minutes_remaining} minutes)"
+                    except Exception:
+                        # Default to 24-hour rate limit for Twitter's 100 requests/day limit
+                        reset_time = (datetime.datetime.now() + datetime.timedelta(hours=24)).isoformat()
+                        error_msg = f"Twitter rate limit reached! Will reset at {reset_time} (in 24 hours)"
+                else:
+                    # Default to 24-hour rate limit for Twitter's 100 requests/day limit
+                    reset_time = (datetime.datetime.now() + datetime.timedelta(hours=24)).isoformat()
+                    error_msg = f"Twitter rate limit reached! Will reset at {reset_time} (in 24 hours)"
+                
+                # Store the rate limit status
+                SystemStatus.set_bool('twitter_rate_limited', True)
+                SystemStatus.set_str('twitter_rate_limit_until', reset_time)
+                
+                logger.error(error_msg)
+                raise tweepy.TweepyException(error_msg)
         
         # First test that we can connect to the Twitter API
         logger.info("Testing Twitter API connection...")
@@ -240,9 +343,10 @@ class TwitterClient:
             logger.error(f"Image file not found: {image_path}")
             raise FileNotFoundError(f"Image file not found: {image_path}")
         
-        # First check if we're rate limited
-        if self.is_rate_limited():
-            error_msg = "Twitter rate limit reached! Will retry in 60 minutes"
+        # First check if we're rate limited based on our database status
+        # This doesn't make any API calls, just checks our persistent flag
+        is_limited, error_msg = self._check_database_rate_limit()
+        if is_limited:
             logger.error(error_msg)
             raise tweepy.TweepyException(error_msg)
         
@@ -313,9 +417,10 @@ class TwitterClient:
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-        # First check if we're rate limited
-        if self.is_rate_limited():
-            error_msg = "Twitter rate limit reached! Will retry in 60 minutes"
+        # First check if we're rate limited based on our database status
+        # This doesn't make any API calls, just checks our persistent flag
+        is_limited, error_msg = self._check_database_rate_limit()
+        if is_limited:
             logger.error(error_msg)
             raise tweepy.TweepyException(error_msg)
             
