@@ -92,7 +92,7 @@ class TwitterClient:
                     
                     logger.error(f"Error 429: Rate limit exceeded - Will reset at {reset_datetime.isoformat()} (in {minutes_remaining} minutes)")
                 else:
-                    logger.error("Error 429: Rate limit exceeded - Will retry in 60 minutes")
+                    logger.error("Error 429: Rate limit exceeded - Will retry in 24 hours")
                 
             # Propagate the exception to the caller
             raise
@@ -127,9 +127,9 @@ class TwitterClient:
                     logger.error(f"Rate limit will reset at: {reset_datetime.isoformat()}")
                     return True, reset_datetime.isoformat()
                 
-                # Default 60-minute timeout if we can't get actual reset time
+                # Default 24-hour timeout for Twitter's daily API limits
                 import datetime
-                default_reset = (datetime.datetime.now() + datetime.timedelta(hours=1)).isoformat()
+                default_reset = (datetime.datetime.now() + datetime.timedelta(hours=24)).isoformat()
                 return True, default_reset
                 
             # Other errors are not rate limit related

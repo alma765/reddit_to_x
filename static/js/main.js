@@ -112,6 +112,7 @@ function updateDashboardData() {
                         }, 5000);
                     }
                 } else {
+                    // Default to 24-hour limit for the main Twitter daily rate limit
                     rateLimitTimer.textContent = '24:00:00';
                 }
             } else if (rateLimitAlert) {
