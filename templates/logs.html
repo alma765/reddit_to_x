@@ -37,37 +37,51 @@
             </div>
             <div class="card-body">
                 <div class="row mb-3">
-                    <div class="col-md-8">
-                        <div class="btn-group" role="group">
-                            <a href="{{ url_for('logs', filter='all', subreddit=current_subreddit) }}" 
-                               class="btn btn-outline-secondary {{ 'active' if current_filter == 'all' }}">
-                                All
-                            </a>
-                            <a href="{{ url_for('logs', filter='success', subreddit=current_subreddit) }}" 
-                               class="btn btn-outline-success {{ 'active' if current_filter == 'success' }}">
-                                Posted
-                            </a>
-                            <a href="{{ url_for('logs', filter='failed', subreddit=current_subreddit) }}" 
-                               class="btn btn-outline-danger {{ 'active' if current_filter == 'failed' }}">
-                                Failed
-                            </a>
-                            <a href="{{ url_for('logs', filter='duplicates', subreddit=current_subreddit) }}" 
-                               class="btn btn-outline-secondary {{ 'active' if current_filter == 'duplicates' }}">
-                                Duplicates
-                            </a>
-                            <a href="{{ url_for('logs', filter='pending', subreddit=current_subreddit) }}" 
-                               class="btn btn-outline-warning {{ 'active' if current_filter == 'pending' }}">
-                                Pending
-                            </a>
+                    <div class="col-md-12">
+                        <div class="d-flex flex-wrap gap-2 mb-3">
+                            <div class="btn-group" role="group">
+                                <a href="{{ url_for('logs', filter='all', subreddit=current_subreddit) }}" 
+                                   class="btn btn-outline-secondary {{ 'active' if current_filter == 'all' }}">
+                                    All
+                                </a>
+                                <a href="{{ url_for('logs', filter='success', subreddit=current_subreddit) }}" 
+                                   class="btn btn-outline-success {{ 'active' if current_filter == 'success' }}">
+                                    Posted
+                                </a>
+                                <a href="{{ url_for('logs', filter='failed', subreddit=current_subreddit) }}" 
+                                   class="btn btn-outline-danger {{ 'active' if current_filter == 'failed' }}">
+                                    Failed
+                                </a>
+                                <a href="{{ url_for('logs', filter='duplicates', subreddit=current_subreddit) }}" 
+                                   class="btn btn-outline-secondary {{ 'active' if current_filter == 'duplicates' }}">
+                                    Duplicates
+                                </a>
+                                <a href="{{ url_for('logs', filter='pending', subreddit=current_subreddit) }}" 
+                                   class="btn btn-outline-warning {{ 'active' if current_filter == 'pending' }}">
+                                    Pending
+                                </a>
+                            </div>
+                            
+                            <div class="btn-group" role="group">
+                                <a href="{{ url_for('logs', filter='videos', subreddit=current_subreddit) }}" 
+                                   class="btn btn-outline-primary {{ 'active' if current_filter == 'videos' }}">
+                                    <i data-feather="video" style="width: 16px; height: 16px;"></i> Videos
+                                </a>
+                                <a href="{{ url_for('logs', filter='images', subreddit=current_subreddit) }}" 
+                                   class="btn btn-outline-primary {{ 'active' if current_filter == 'images' }}">
+                                    <i data-feather="image" style="width: 16px; height: 16px;"></i> Images
+                                </a>
+                            </div>
+                            
+                            <div class="ms-auto">
+                                <select class="form-select" id="subredditFilter" onchange="filterBySubreddit(this.value)">
+                                    <option value="">All Subreddits</option>
+                                    {% for sr in all_subreddits %}
+                                    <option value="{{ sr }}" {{ 'selected' if current_subreddit == sr }}>r/{{ sr }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
                         </div>
-                    </div>
-                    <div class="col-md-4">
-                        <select class="form-select" id="subredditFilter" onchange="filterBySubreddit(this.value)">
-                            <option value="">All Subreddits</option>
-                            {% for sr in all_subreddits %}
-                            <option value="{{ sr }}" {{ 'selected' if current_subreddit == sr }}>r/{{ sr }}</option>
-                            {% endfor %}
-                        </select>
                     </div>
                 </div>
 
@@ -89,6 +103,11 @@
                                 <td>r/{{ post.subreddit }}</td>
                                 <td>
                                     <a href="{{ post.reddit_url }}" target="_blank" class="text-truncate d-inline-block" style="max-width: 300px;">
+                                        {% if post.content_type == 'video' %}
+                                        <i data-feather="video" class="me-1" style="width: 14px; height: 14px;"></i>
+                                        {% elif post.content_type == 'image' %}
+                                        <i data-feather="image" class="me-1" style="width: 14px; height: 14px;"></i>
+                                        {% endif %}
                                         {{ post.title }}
                                     </a>
                                 </td>
@@ -125,6 +144,17 @@
                                                         <strong>Cleaned Title:</strong> {{ post.cleaned_title }}
                                                     </div>
                                                     {% endif %}
+                                                    
+                                                    <div class="badge bg-secondary mb-2">
+                                                        {% if post.content_type == 'video' %}
+                                                        <i data-feather="video"></i> Video
+                                                        {% elif post.content_type == 'image' %}
+                                                        <i data-feather="image"></i> Image
+                                                        {% else %}
+                                                        <i data-feather="file"></i> Content
+                                                        {% endif %}
+                                                    </div>
+                                                    
                                                     <hr>
                                                     <div class="row">
                                                         <div class="col-md-6">
@@ -134,9 +164,11 @@
                                                             <p><strong>Created:</strong> {{ post.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
                                                         </div>
                                                         <div class="col-md-6">
-                                                            {% if post.video_path %}
+                                                            {% if post.content_type == 'video' and post.video_path %}
                                                             <p><strong>Video Size:</strong> {{ (post.video_size_bytes / 1024 / 1024)|round(2) }} MB</p>
                                                             <p><strong>Duration:</strong> {{ post.video_duration_seconds|round(2) }} seconds</p>
+                                                            {% elif post.content_type == 'image' and post.image_path %}
+                                                            <p><strong>Image Size:</strong> {{ (post.image_size_bytes / 1024 / 1024)|round(2) }} MB</p>
                                                             {% endif %}
                                                             
                                                             {% if post.processed_at %}

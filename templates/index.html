@@ -132,6 +132,25 @@
                                 </div>
                             </div>
                         </div>
+                        
+                        <hr>
+                        <h6>Content Type Breakdown</h6>
+                        <div class="row text-center mt-3">
+                            <div class="col-6">
+                                <div class="stat-box">
+                                    <i data-feather="video" class="mb-2"></i>
+                                    <h4>{{ video_posts|default(0) }}</h4>
+                                    <p>Videos</p>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="stat-box">
+                                    <i data-feather="image" class="mb-2"></i>
+                                    <h4>{{ image_posts|default(0) }}</h4>
+                                    <p>Images</p>
+                                </div>
+                            </div>
+                        </div>
                         <div class="progress mt-3">
                             {% if total_posts > 0 %}
                             <div class="progress-bar bg-success" style="width: {{ (successful_posts / total_posts) * 100 }}%">
@@ -188,6 +207,11 @@
                                 <td>r/{{ post.subreddit }}</td>
                                 <td>
                                     <a href="{{ post.reddit_url }}" target="_blank" class="text-truncate d-inline-block" style="max-width: 300px;">
+                                        {% if post.content_type == 'video' %}
+                                        <i data-feather="video" class="me-1" style="width: 14px; height: 14px;"></i>
+                                        {% elif post.content_type == 'image' %}
+                                        <i data-feather="image" class="me-1" style="width: 14px; height: 14px;"></i>
+                                        {% endif %}
                                         {{ post.title }}
                                     </a>
                                 </td>

@@ -47,6 +47,10 @@ def index():
     failed_posts = db.session.query(Post).filter_by(error=True).count()
     duplicate_posts = db.session.query(Post).filter(Post.error_message.like('%Duplicate%')).count()
     
+    # Get content type stats
+    video_posts = db.session.query(Post).filter_by(content_type='video').count()
+    image_posts = db.session.query(Post).filter_by(content_type='image').count()
+    
     # Get latest posts
     latest_posts = db.session.query(Post).order_by(Post.created_at.desc()).limit(5).all()
     
@@ -59,6 +63,8 @@ def index():
                           successful_posts=successful_posts,
                           failed_posts=failed_posts,
                           duplicate_posts=duplicate_posts,
+                          video_posts=video_posts,
+                          image_posts=image_posts,
                           latest_posts=latest_posts,
                           subreddits=SUBREDDITS,
                           post_interval=POST_INTERVAL_MINUTES,
@@ -77,6 +83,7 @@ def logs():
     # Filtering options
     filter_type = request.args.get('filter', 'all')
     subreddit = request.args.get('subreddit', '')
+    content_type = request.args.get('content_type', '')
     
     query = db.session.query(Post)
     
@@ -88,9 +95,16 @@ def logs():
         query = query.filter(Post.error_message.like('%Duplicate%'))
     elif filter_type == 'pending':
         query = query.filter_by(posted_to_twitter=False, error=False)
+    elif filter_type == 'videos':
+        query = query.filter_by(content_type='video')
+    elif filter_type == 'images':
+        query = query.filter_by(content_type='image')
         
     if subreddit:
         query = query.filter_by(subreddit=subreddit)
+        
+    if content_type and filter_type not in ['videos', 'images']:
+        query = query.filter_by(content_type=content_type)
     
     # Get paginated results
     pagination = query.order_by(Post.created_at.desc()).paginate(page=page, per_page=per_page)
@@ -119,6 +133,14 @@ def api_status():
         duplicate_posts = db.session.query(Post).filter(Post.error_message.like('%Duplicate%')).count()
         in_progress = total_posts - successful_posts - failed_posts
         
+        # Content type stats
+        video_posts = db.session.query(Post).filter_by(content_type='video').count()
+        image_posts = db.session.query(Post).filter_by(content_type='image').count()
+        
+        # Success rate by content type
+        video_success = db.session.query(Post).filter_by(content_type='video', posted_to_twitter=True).count()
+        image_success = db.session.query(Post).filter_by(content_type='image', posted_to_twitter=True).count()
+        
         return jsonify({
             'status': 'running' if scheduler.running else 'stopped',
             'total_posts': total_posts,
@@ -127,7 +149,19 @@ def api_status():
             'duplicate_posts': duplicate_posts,
             'error_posts': failed_posts - duplicate_posts,
             'in_progress': in_progress,
-            'success_rate': (successful_posts / total_posts * 100) if total_posts > 0 else 0
+            'success_rate': (successful_posts / total_posts * 100) if total_posts > 0 else 0,
+            'content_types': {
+                'video': {
+                    'total': video_posts,
+                    'successful': video_success,
+                    'success_rate': (video_success / video_posts * 100) if video_posts > 0 else 0
+                },
+                'image': {
+                    'total': image_posts,
+                    'successful': image_success,
+                    'success_rate': (image_success / image_posts * 100) if image_posts > 0 else 0
+                }
+            }
         })
     except Exception as e:
         logger.error(f"Error in API status: {str(e)}")
