@@ -59,9 +59,12 @@ class VideoProcessor:
             # Check if file size exceeds Twitter's limit
             max_size_bytes = MAX_VIDEO_SIZE_MB * 1024 * 1024
             if file_size > max_size_bytes:
+                # Still valid for compression purposes, we'll just report the size issue
                 result['error'] = f"Video size ({file_size/1024/1024:.2f}MB) exceeds Twitter limit of {MAX_VIDEO_SIZE_MB}MB"
                 logger.warning(result['error'])
-                return result
+                # Instead of returning early, set valid to true but keep the error message
+                # This allows the compression method to attempt to compress oversized files
+                result['valid'] = True
             
             # Open the video to check integrity and get duration
             video = cv2.VideoCapture(video_path)
@@ -191,6 +194,18 @@ class VideoProcessor:
                 
             duration = validation.get('duration', 0)
             
+            # Adjust compression parameters based on video size
+            # For extremely large videos, use more aggressive compression
+            if original_size_mb > 50:
+                logger.warning(f"Video is very large ({original_size_mb:.2f}MB), using aggressive compression")
+                target_size_mb = MAX_VIDEO_SIZE_MB - 2  # Even more margin for safety
+                max_width = min(max_width, 854)  # Lower resolution (480p equivalent)
+            # For large videos, use stronger compression
+            elif original_size_mb > 20:
+                logger.warning(f"Video is large ({original_size_mb:.2f}MB), using stronger compression")
+                target_size_mb = MAX_VIDEO_SIZE_MB - 1.5  # More margin
+                max_width = min(max_width, 1024)  # 720p equivalent
+                
             # Determine if we need to handle duration issues
             needs_duration_fix = False
             speed_filter = ""
@@ -280,11 +295,14 @@ class VideoProcessor:
                     # Build the video filter string
                     video_filter = f"scale={new_width}:{new_height}{speed_filter}"
                     
-                    # FFmpeg command for compression
+                    # FFmpeg command for compression with better audio handling
                     command = [
                         'ffmpeg',
                         '-i', input_path,
                         '-c:v', 'libx264',
+                        '-preset', 'medium',  # Balance between compression speed and quality
+                        '-profile:v', 'main', # Good compatibility with Twitter
+                        '-level', '4.0',      # Compatibility level
                         '-b:v', f'{target_bitrate}k',
                         '-maxrate', f'{target_bitrate * 1.5}k',
                         '-bufsize', f'{target_bitrate * 3}k',
@@ -295,11 +313,14 @@ class VideoProcessor:
                     if audio_filter:
                         command.extend(['-af', audio_filter])
                     
-                    # Add remaining parameters
+                    # Improved audio handling - prioritize audio quality
                     command.extend([
                         '-c:a', 'aac',
-                        '-b:a', '128k',
-                        '-y',  # Overwrite output file if it exists
+                        '-b:a', '128k',       # Default audio bitrate
+                        '-ar', '48000',       # Standard audio sampling rate
+                        '-ac', '2',           # Stereo audio
+                        '-movflags', '+faststart',  # Optimize for web streaming
+                        '-y',                 # Overwrite output file if it exists
                         temp_output
                     ])
                     
