@@ -210,14 +210,23 @@ def api_status():
         video_success = db.session.query(Post).filter_by(content_type='video', posted_to_twitter=True).count()
         image_success = db.session.query(Post).filter_by(content_type='image', posted_to_twitter=True).count()
         
-        # Check for Twitter rate limit errors
-        rate_limit_errors = db.session.query(Post).filter(
-            Post.error_message.like('%429%') | 
-            Post.error_message.like('%Too Many Requests%')
-        ).count()
-        twitter_rate_limited = rate_limit_errors > 0
+        # Check for Twitter rate limit status using the persistent flag
+        from models import SystemStatus
+        twitter_rate_limited = SystemStatus.get_bool('twitter_rate_limited', False)
+        rate_limit_until = SystemStatus.get_str('twitter_rate_limit_until', None)
         
-        return jsonify({
+        # Add expiration time to the response if available
+        rate_limit_expiration = None
+        if rate_limit_until:
+            try:
+                rate_limit_time = datetime.fromisoformat(rate_limit_until)
+                # Only include if it's in the future
+                if rate_limit_time > datetime.utcnow():
+                    rate_limit_expiration = rate_limit_until
+            except Exception:
+                pass
+        
+        response_data = {
             'status': 'running' if scheduler.running else 'stopped',
             'total_posts': total_posts,
             'successful_posts': successful_posts,
@@ -239,7 +248,24 @@ def api_status():
                     'success_rate': (image_success / image_posts * 100) if image_posts > 0 else 0
                 }
             }
-        })
+        }
+        
+        # Add rate limit expiration time if available
+        if rate_limit_expiration:
+            try:
+                expiry_time = datetime.fromisoformat(rate_limit_expiration)
+                now = datetime.utcnow()
+                minutes_remaining = int((expiry_time - now).total_seconds() / 60)
+                
+                response_data['twitter_rate_limit_info'] = {
+                    'expiration': rate_limit_expiration,
+                    'minutes_remaining': max(0, minutes_remaining),
+                    'human_readable': f"Rate limited for {max(0, minutes_remaining)} more minutes"
+                }
+            except Exception as e:
+                logger.error(f"Error calculating rate limit expiration: {e}")
+                
+        return jsonify(response_data)
     except Exception as e:
         logger.error(f"Error in API status: {str(e)}")
         return jsonify({

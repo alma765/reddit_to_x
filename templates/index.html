@@ -43,11 +43,14 @@
         {% endwith %}
         
         {% if twitter_rate_limited %}
-        <div class="alert alert-warning">
+        <div class="alert alert-warning" id="rate-limit-alert">
             <h4 class="alert-heading"><i data-feather="alert-triangle"></i> Twitter Rate Limit Reached</h4>
-            <p>Twitter has temporarily rate-limited this account. This means the bot can still run, but posts will be simulated rather than actually posted to Twitter until the rate limit expires.</p>
+            <p>Twitter has temporarily rate-limited this account. The bot will continue to process Reddit content, but posting to Twitter will be paused until the rate limit expires.</p>
             <hr>
-            <p class="mb-0">Rate limits typically reset after 15-30 minutes. The bot will automatically resume normal posting when the rate limit expires.</p>
+            <div class="d-flex justify-content-between align-items-center">
+                <p class="mb-0">Rate limits typically reset after 60 minutes. The bot will automatically resume normal posting when the rate limit expires.</p>
+                <div id="rate-limit-timer" class="badge bg-danger">--:--</div>
+            </div>
         </div>
         {% endif %}
 

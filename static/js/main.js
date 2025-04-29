@@ -91,6 +91,45 @@ document.addEventListener('DOMContentLoaded', function() {
                         progressBar.className = 'progress-bar bg-danger';
                     }
                 }
+                
+                // Handle Twitter rate limit timer
+                const rateLimitAlert = document.getElementById('rate-limit-alert');
+                const rateLimitTimer = document.getElementById('rate-limit-timer');
+                
+                // Update rate limit information if available
+                if (data.twitter_rate_limited && rateLimitAlert && rateLimitTimer) {
+                    // Make sure alert is visible
+                    rateLimitAlert.style.display = '';
+                    
+                    // Update timer if we have expiration info
+                    if (data.twitter_rate_limit_info && data.twitter_rate_limit_info.minutes_remaining !== undefined) {
+                        const minutes = data.twitter_rate_limit_info.minutes_remaining;
+                        
+                        if (minutes > 0) {
+                            // Format as MM:SS
+                            const mins = Math.floor(minutes);
+                            const secs = Math.round((minutes - mins) * 60);
+                            rateLimitTimer.textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                            rateLimitTimer.classList.remove('bg-success');
+                            rateLimitTimer.classList.add('bg-danger');
+                        } else {
+                            // Rate limit has expired
+                            rateLimitTimer.textContent = 'Expired';
+                            rateLimitTimer.classList.remove('bg-danger');
+                            rateLimitTimer.classList.add('bg-success');
+                            
+                            // Refresh page to apply changes if rate limit expired
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 5000);
+                        }
+                    } else {
+                        rateLimitTimer.textContent = '60:00';
+                    }
+                } else if (rateLimitAlert) {
+                    // Hide alert if not rate limited
+                    rateLimitAlert.style.display = 'none';
+                }
             })
             .catch(error => {
                 console.error('Error fetching status:', error);
