@@ -695,3 +695,84 @@ class RedditClient:
             tweet += f" [{metadata['flair']}]"
         
         return tweet
+
+    def get_gallery_image_urls(self, submission):
+        """
+        Extract all image URLs from a Reddit gallery post
+        
+        Args:
+            submission: Reddit submission object
+            
+        Returns:
+            list: List of direct URLs to all images in the gallery, or empty list if not a gallery
+                 or if extraction fails
+        """
+        image_urls = []
+        
+        # Check if this is a gallery post
+        if not (hasattr(submission, 'is_gallery') and submission.is_gallery):
+            return image_urls
+            
+        try:
+            # If it's a Reddit gallery, extract all images
+            if hasattr(submission, 'media_metadata') and submission.media_metadata:
+                # First get all media IDs in order if gallery_data is available
+                ordered_ids = []
+                if hasattr(submission, 'gallery_data') and submission.gallery_data:
+                    for item in submission.gallery_data['items']:
+                        ordered_ids.append(item['media_id'])
+                
+                # If we couldn't get ordered IDs, just use the keys from media_metadata
+                if not ordered_ids:
+                    ordered_ids = list(submission.media_metadata.keys())
+                
+                # Process all media IDs
+                for media_id in ordered_ids:
+                    if media_id in submission.media_metadata:
+                        item = submission.media_metadata[media_id]
+                        if item['e'] == 'Image':  # 'e' stands for 'extension'
+                            if 's' in item and 'u' in item['s']:  # 's' is source, 'u' is URL
+                                image_urls.append(item['s']['u'])
+                                
+                logger.info(f"Found {len(image_urls)} images in Reddit gallery")
+        except Exception as e:
+            logger.error(f"Error extracting gallery images: {str(e)}")
+            
+        return image_urls
+        
+    def download_gallery_images(self, submission, base_path):
+        """
+        Download all images from a Reddit gallery post
+        
+        Args:
+            submission: Reddit submission object
+            base_path: Base path for downloading images, without extension
+            
+        Returns:
+            list: List of paths to downloaded images, or empty list if download failed
+        """
+        image_paths = []
+        
+        # Get all image URLs from the gallery
+        image_urls = self.get_gallery_image_urls(submission)
+        if not image_urls:
+            logger.warning(f"No images found in gallery post: {submission.id}")
+            return image_paths
+            
+        # Download each image with a unique filename
+        for i, image_url in enumerate(image_urls):
+            # Create a unique path for each image
+            if i == 0:
+                # First image uses base path directly
+                image_path = f"{base_path}.jpg"
+            else:
+                # Additional images append index
+                image_path = f"{base_path}_{i+1}.jpg"
+                
+            # Download the image
+            downloaded_path = self.download_image(image_url, image_path)
+            if downloaded_path:
+                image_paths.append(downloaded_path)
+                
+        logger.info(f"Downloaded {len(image_paths)} out of {len(image_urls)} gallery images")
+        return image_paths

@@ -83,15 +83,21 @@ def process_and_post():
                 logger.debug(f"Skipping already processed submission: {submission.id}")
                 continue
                 
-            # Determine content type (video or image)
+            # Determine content type (video, image, or gallery)
             content_type = "unknown"
             media_url = None
+            is_gallery = False
             
+            # Check for gallery (special case of image)
+            if hasattr(submission, 'is_gallery') and submission.is_gallery:
+                content_type = "gallery"
+                is_gallery = True
+                # No media_url needed for gallery, we'll handle it differently
             # Check for video
-            if reddit_client._has_video(submission):
+            elif reddit_client._has_video(submission):
                 content_type = "video"
                 media_url = reddit_client.get_video_url(submission)
-            # Check for image
+            # Check for single image
             elif reddit_client._has_image(submission):
                 content_type = "image"
                 media_url = reddit_client.get_image_url(submission)
