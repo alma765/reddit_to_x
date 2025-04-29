@@ -83,20 +83,31 @@ def process_and_post():
                 logger.debug(f"Skipping already processed submission: {submission.id}")
                 continue
                 
-            # Additional check for video URL similarity to avoid duplicate content with different IDs
-            video_url = reddit_client.get_video_url(submission)
-            if not video_url:
-                logger.warning(f"Could not extract video URL for {submission.id}")
+            # Determine content type (video or image)
+            content_type = "unknown"
+            media_url = None
+            
+            # Check for video
+            if reddit_client._has_video(submission):
+                content_type = "video"
+                media_url = reddit_client.get_video_url(submission)
+            # Check for image
+            elif reddit_client._has_image(submission):
+                content_type = "image"
+                media_url = reddit_client.get_image_url(submission)
+            
+            if not media_url:
+                logger.warning(f"Could not extract media URL for {submission.id}")
                 continue
                 
-            # Check by URL pattern
-            video_url_pattern = video_url.split('?')[0]  # Remove query parameters
+            # Check for similar content by URL pattern to avoid duplicate content with different IDs
+            media_url_pattern = media_url.split('?')[0]  # Remove query parameters
             similar_posts = db.session.query(Post).filter(
-                Post.reddit_url.like(f"%{video_url_pattern}%")
+                Post.reddit_url.like(f"%{media_url_pattern}%")
             ).first()
             
             if similar_posts:
-                logger.warning(f"Skipping submission {submission.id} with similar video URL pattern")
+                logger.warning(f"Skipping submission {submission.id} with similar {content_type} URL pattern")
                 
                 # Record as duplicate but don't post
                 post = Post(
@@ -105,9 +116,10 @@ def process_and_post():
                     title=submission.title,
                     subreddit=submission.subreddit.display_name,
                     author=submission.author.name if submission.author else "[deleted]",
+                    content_type=content_type,
                     created_at=datetime.utcnow(),
                     error=True,
-                    error_message="Duplicate video content detected",
+                    error_message=f"Duplicate {content_type} content detected",
                     processed_at=datetime.utcnow()
                 )
                 db.session.add(post)
@@ -123,115 +135,153 @@ def process_and_post():
                 title=submission.title,
                 subreddit=submission.subreddit.display_name,
                 author=submission.author.name if submission.author else "[deleted]",
+                content_type=content_type,
                 created_at=datetime.utcnow()
             )
             
             try:
-                # Get the direct video URL
-                video_url = reddit_client.get_video_url(submission)
-                if not video_url:
-                    post.error = True
-                    post.error_message = "Could not extract video URL"
-                    db.session.add(post)
-                    db.session.commit()
-                    logger.warning(f"Could not extract video URL for {submission.id}")
-                    continue
+                downloaded_path = None
                 
-                # Generate a filename and download the video
-                video_path = video_processor.generate_filename(submission.id)
-                downloaded_path = reddit_client.download_video(video_url, video_path)
-                
-                if not downloaded_path:
-                    post.error = True
-                    post.error_message = "Failed to download video"
-                    db.session.add(post)
-                    db.session.commit()
-                    logger.warning(f"Failed to download video for {submission.id}")
-                    continue
-                
-                # Check for duplicate content
-                if video_processor.is_duplicate_content(downloaded_path):
-                    logger.warning(f"Duplicate video content detected for {submission.id}")
-                    post.error = True
-                    post.error_message = "Duplicate video content detected"
-                    post.processed_at = datetime.utcnow()
-                    db.session.add(post)
-                    db.session.commit()
+                # Process based on content type
+                if content_type == "video":
+                    # Process video content
+                    logger.info(f"Processing video content for {submission.id}")
                     
-                    # Clean up duplicate video
-                    try:
-                        os.remove(downloaded_path)
-                        logger.info(f"Removed duplicate video file: {downloaded_path}")
-                    except Exception as e:
-                        logger.error(f"Failed to remove duplicate video: {e}")
+                    # Generate a filename and download the video
+                    video_path = video_processor.generate_filename(submission.id)
+                    downloaded_path = reddit_client.download_video(media_url, video_path)
                     
-                    continue
-                
-                # Validate the video
-                validation = video_processor.validate_video(downloaded_path)
-                
-                # If the video is invalid, check if it's due to size
-                if not validation['valid']:
-                    size_error = False
-                    if validation['error'] and "exceeds Twitter limit" in validation['error']:
-                        size_error = True
-                        logger.info(f"Video exceeds size limit, attempting compression: {validation['size_bytes']/1024/1024:.2f} MB")
-                        
-                        # Try to compress the video
-                        compressed_path = video_processor.compress_video(downloaded_path)
-                        if compressed_path:
-                            logger.info(f"Successfully compressed video: {compressed_path}")
-                            # Validate the compressed video
-                            validation = video_processor.validate_video(compressed_path)
-                            if validation['valid']:
-                                # Check for duplicate content again with compressed video
-                                if video_processor.is_duplicate_content(compressed_path):
-                                    logger.warning(f"Duplicate video content detected after compression for {submission.id}")
-                                    post.error = True
-                                    post.error_message = "Duplicate video content detected after compression"
-                                    post.processed_at = datetime.utcnow()
-                                    db.session.add(post)
-                                    db.session.commit()
-                                    
-                                    # Clean up duplicate videos
-                                    try:
-                                        os.remove(downloaded_path)
-                                        os.remove(compressed_path)
-                                        logger.info(f"Removed duplicate video files after compression")
-                                    except Exception as e:
-                                        logger.error(f"Failed to remove duplicate videos: {e}")
-                                    
-                                    continue
-                                    
-                                # Update the path to the compressed version
-                                downloaded_path = compressed_path
-                                size_error = False
-                    
-                    # If compression failed or other validation error
-                    if not validation['valid']:
+                    if not downloaded_path:
                         post.error = True
-                        post.error_message = validation['error']
-                        post.video_path = downloaded_path
-                        post.video_size_bytes = validation['size_bytes']
-                        post.video_duration_seconds = validation['duration']
+                        post.error_message = "Failed to download video"
                         db.session.add(post)
                         db.session.commit()
-                        logger.warning(f"Video validation failed for {submission.id}: {validation['error']}")
+                        logger.warning(f"Failed to download video for {submission.id}")
+                        continue
+                    
+                    # Check for duplicate content
+                    if video_processor.is_duplicate_content(downloaded_path):
+                        logger.warning(f"Duplicate video content detected for {submission.id}")
+                        post.error = True
+                        post.error_message = "Duplicate video content detected"
+                        post.processed_at = datetime.utcnow()
+                        db.session.add(post)
+                        db.session.commit()
                         
-                        # Clean up invalid video if it exists
-                        if os.path.exists(downloaded_path):
-                            try:
-                                os.remove(downloaded_path)
-                                logger.info(f"Removed invalid video file: {downloaded_path}")
-                            except Exception as e:
-                                logger.error(f"Failed to remove invalid video: {e}")
+                        # Clean up duplicate video
+                        try:
+                            os.remove(downloaded_path)
+                            logger.info(f"Removed duplicate video file: {downloaded_path}")
+                        except Exception as e:
+                            logger.error(f"Failed to remove duplicate video: {e}")
                         
                         continue
-                
-                # Update post with video info
-                post.video_path = downloaded_path
-                post.video_size_bytes = validation['size_bytes']
-                post.video_duration_seconds = validation['duration']
+                    
+                    # Validate the video
+                    validation = video_processor.validate_video(downloaded_path)
+                    
+                    # If the video is invalid, check if it's due to size
+                    if not validation['valid']:
+                        size_error = False
+                        if validation['error'] and "exceeds Twitter limit" in validation['error']:
+                            size_error = True
+                            logger.info(f"Video exceeds size limit, attempting compression: {validation['size_bytes']/1024/1024:.2f} MB")
+                            
+                            # Try to compress the video
+                            compressed_path = video_processor.compress_video(downloaded_path)
+                            if compressed_path:
+                                logger.info(f"Successfully compressed video: {compressed_path}")
+                                # Validate the compressed video
+                                validation = video_processor.validate_video(compressed_path)
+                                if validation['valid']:
+                                    # Check for duplicate content again with compressed video
+                                    if video_processor.is_duplicate_content(compressed_path):
+                                        logger.warning(f"Duplicate video content detected after compression for {submission.id}")
+                                        post.error = True
+                                        post.error_message = "Duplicate video content detected after compression"
+                                        post.processed_at = datetime.utcnow()
+                                        db.session.add(post)
+                                        db.session.commit()
+                                        
+                                        # Clean up duplicate videos
+                                        try:
+                                            os.remove(downloaded_path)
+                                            os.remove(compressed_path)
+                                            logger.info(f"Removed duplicate video files after compression")
+                                        except Exception as e:
+                                            logger.error(f"Failed to remove duplicate videos: {e}")
+                                        
+                                        continue
+                                        
+                                    # Update the path to the compressed version
+                                    downloaded_path = compressed_path
+                                    size_error = False
+                        
+                        # If compression failed or other validation error
+                        if not validation['valid']:
+                            post.error = True
+                            post.error_message = validation['error']
+                            post.video_path = downloaded_path
+                            post.video_size_bytes = validation['size_bytes']
+                            post.video_duration_seconds = validation['duration']
+                            db.session.add(post)
+                            db.session.commit()
+                            logger.warning(f"Video validation failed for {submission.id}: {validation['error']}")
+                            
+                            # Clean up invalid video if it exists
+                            if os.path.exists(downloaded_path):
+                                try:
+                                    os.remove(downloaded_path)
+                                    logger.info(f"Removed invalid video file: {downloaded_path}")
+                                except Exception as e:
+                                    logger.error(f"Failed to remove invalid video: {e}")
+                            
+                            continue
+                    
+                    # Update post with video info
+                    post.video_path = downloaded_path
+                    post.video_size_bytes = validation['size_bytes']
+                    post.video_duration_seconds = validation['duration']
+                    
+                elif content_type == "image":
+                    # Process image content
+                    logger.info(f"Processing image content for {submission.id}")
+                    
+                    # Generate a filename and download the image
+                    image_path = video_processor.generate_filename(submission.id, extension=".jpg")
+                    downloaded_path = reddit_client.download_image(media_url, image_path)
+                    
+                    if not downloaded_path:
+                        post.error = True
+                        post.error_message = "Failed to download image"
+                        db.session.add(post)
+                        db.session.commit()
+                        logger.warning(f"Failed to download image for {submission.id}")
+                        continue
+                    
+                    # Get image file size
+                    image_size = os.path.getsize(downloaded_path)
+                    
+                    # Update post with image info
+                    post.image_path = downloaded_path
+                    post.image_size_bytes = image_size
+                    
+                    # Check if image is too large for Twitter (5MB limit)
+                    if image_size > 5 * 1024 * 1024:
+                        post.error = True
+                        post.error_message = "Image exceeds Twitter size limit (5MB)"
+                        db.session.add(post)
+                        db.session.commit()
+                        logger.warning(f"Image too large for Twitter: {image_size/1024/1024:.2f} MB")
+                        
+                        # Clean up oversized image
+                        try:
+                            os.remove(downloaded_path)
+                            logger.info(f"Removed oversized image file: {downloaded_path}")
+                        except Exception as e:
+                            logger.error(f"Failed to remove oversized image: {e}")
+                        
+                        continue
                 
                 # Extract metadata and generate a clean, tweet-friendly title
                 logger.info("Extracting post metadata and generating tweet title...")
@@ -251,8 +301,13 @@ def process_and_post():
                 
                 logger.info(f"Using tweet text: {post_text}")
                 
-                # Post to Twitter
-                tweet_result = twitter_client.post_video(downloaded_path, post_text)
+                # Post to Twitter based on content type
+                if content_type == "video":
+                    tweet_result = twitter_client.post_video(downloaded_path, post_text)
+                    logger.info(f"Successfully posted video from {submission.id} to Twitter")
+                elif content_type == "image":
+                    tweet_result = twitter_client.post_image(downloaded_path, post_text)
+                    logger.info(f"Successfully posted image from {submission.id} to Twitter")
                 
                 # Update post with Twitter info
                 post.posted_to_twitter = True
@@ -263,9 +318,7 @@ def process_and_post():
                 db.session.add(post)
                 db.session.commit()
                 
-                logger.info(f"Successfully posted video from {submission.id} to Twitter")
-                
-                # We only want to post one video per run, so exit after first success
+                # We only want to post one item per run, so exit after first success
                 break
                 
             except Exception as e:

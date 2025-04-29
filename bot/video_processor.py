@@ -248,32 +248,35 @@ class VideoProcessor:
             if 'video' in locals():
                 video.release()
     
-    def generate_filename(self, reddit_id):
+    def generate_filename(self, reddit_id, extension=".mp4"):
         """
         Generate a unique filename for a Reddit post
         
         Args:
             reddit_id (str): Reddit post ID
+            extension (str): File extension to use (.mp4, .jpg, etc.)
             
         Returns:
             str: Full path to the file
         """
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-        filename = f"{reddit_id}_{timestamp}.mp4"
+        filename = f"{reddit_id}_{timestamp}{extension}"
         return os.path.join(self.download_folder, filename)
     
     def cleanup_old_videos(self, max_age_days=7):
         """
-        Remove videos older than the specified age
+        Remove media files (videos and images) older than the specified age
         
         Args:
-            max_age_days (int): Maximum age of videos in days
+            max_age_days (int): Maximum age of files in days
         """
         try:
             current_time = datetime.now()
-            count = 0
+            video_count = 0
+            image_count = 0
             
             for filename in os.listdir(self.download_folder):
+                # Check video files
                 if filename.endswith(('.mp4', '.mov', '.avi', '.webm')):
                     file_path = os.path.join(self.download_folder, filename)
                     file_modified = datetime.fromtimestamp(os.path.getmtime(file_path))
@@ -283,14 +286,28 @@ class VideoProcessor:
                     
                     if age_days > max_age_days:
                         os.remove(file_path)
-                        count += 1
+                        video_count += 1
                         logger.debug(f"Removed old video: {file_path} (age: {age_days} days)")
+                
+                # Check image files
+                elif filename.endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                    file_path = os.path.join(self.download_folder, filename)
+                    file_modified = datetime.fromtimestamp(os.path.getmtime(file_path))
+                    
+                    # Calculate file age in days
+                    age_days = (current_time - file_modified).days
+                    
+                    if age_days > max_age_days:
+                        os.remove(file_path)
+                        image_count += 1
+                        logger.debug(f"Removed old image: {file_path} (age: {age_days} days)")
             
-            if count > 0:
-                logger.info(f"Cleaned up {count} old videos")
+            total_count = video_count + image_count
+            if total_count > 0:
+                logger.info(f"Cleaned up {video_count} old videos and {image_count} old images")
                 
         except Exception as e:
-            logger.error(f"Error during video cleanup: {str(e)}")
+            logger.error(f"Error during media cleanup: {str(e)}")
             
     def compress_video(self, input_path, target_size_mb=None, max_width=1280):
         """
