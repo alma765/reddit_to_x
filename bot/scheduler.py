@@ -81,6 +81,37 @@ def process_and_post():
             if existing_post:
                 logger.debug(f"Skipping already processed submission: {submission.id}")
                 continue
+                
+            # Additional check for video URL similarity to avoid duplicate content with different IDs
+            video_url = reddit_client.get_video_url(submission)
+            if not video_url:
+                logger.warning(f"Could not extract video URL for {submission.id}")
+                continue
+                
+            # Check by URL pattern
+            video_url_pattern = video_url.split('?')[0]  # Remove query parameters
+            similar_posts = db.session.query(Post).filter(
+                Post.reddit_url.like(f"%{video_url_pattern}%")
+            ).first()
+            
+            if similar_posts:
+                logger.warning(f"Skipping submission {submission.id} with similar video URL pattern")
+                
+                # Record as duplicate but don't post
+                post = Post(
+                    reddit_id=submission.id,
+                    reddit_url=submission.url,
+                    title=submission.title,
+                    subreddit=submission.subreddit.display_name,
+                    author=submission.author.name if submission.author else "[deleted]",
+                    created_at=datetime.utcnow(),
+                    error=True,
+                    error_message="Duplicate video content detected",
+                    processed_at=datetime.utcnow()
+                )
+                db.session.add(post)
+                db.session.commit()
+                continue
             
             logger.info(f"Processing new submission: {submission.id} - {submission.title}")
             
@@ -117,6 +148,24 @@ def process_and_post():
                     logger.warning(f"Failed to download video for {submission.id}")
                     continue
                 
+                # Check for duplicate content
+                if video_processor.is_duplicate_content(downloaded_path):
+                    logger.warning(f"Duplicate video content detected for {submission.id}")
+                    post.error = True
+                    post.error_message = "Duplicate video content detected"
+                    post.processed_at = datetime.utcnow()
+                    db.session.add(post)
+                    db.session.commit()
+                    
+                    # Clean up duplicate video
+                    try:
+                        os.remove(downloaded_path)
+                        logger.info(f"Removed duplicate video file: {downloaded_path}")
+                    except Exception as e:
+                        logger.error(f"Failed to remove duplicate video: {e}")
+                    
+                    continue
+                
                 # Validate the video
                 validation = video_processor.validate_video(downloaded_path)
                 
@@ -134,6 +183,25 @@ def process_and_post():
                             # Validate the compressed video
                             validation = video_processor.validate_video(compressed_path)
                             if validation['valid']:
+                                # Check for duplicate content again with compressed video
+                                if video_processor.is_duplicate_content(compressed_path):
+                                    logger.warning(f"Duplicate video content detected after compression for {submission.id}")
+                                    post.error = True
+                                    post.error_message = "Duplicate video content detected after compression"
+                                    post.processed_at = datetime.utcnow()
+                                    db.session.add(post)
+                                    db.session.commit()
+                                    
+                                    # Clean up duplicate videos
+                                    try:
+                                        os.remove(downloaded_path)
+                                        os.remove(compressed_path)
+                                        logger.info(f"Removed duplicate video files after compression")
+                                    except Exception as e:
+                                        logger.error(f"Failed to remove duplicate videos: {e}")
+                                    
+                                    continue
+                                    
                                 # Update the path to the compressed version
                                 downloaded_path = compressed_path
                                 size_error = False

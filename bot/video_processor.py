@@ -29,6 +29,135 @@ class VideoProcessor:
         os.makedirs(self.download_folder, exist_ok=True)
         logger.info(f"Video processor initialized with download folder: {self.download_folder}")
     
+    def calculate_video_hash(self, video_path, frames_to_sample=5):
+        """
+        Calculate a simple hash based on video resolution and sampled frames
+        
+        Args:
+            video_path (str): Path to the video file
+            frames_to_sample (int): Number of frames to sample for the hash
+            
+        Returns:
+            str: A hash string representing the video, or None if calculation fails
+        """
+        try:
+            video = cv2.VideoCapture(video_path)
+            if not video.isOpened():
+                logger.error(f"Could not open video for hashing: {video_path}")
+                return None
+                
+            # Get video properties
+            width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = video.get(cv2.CAP_PROP_FPS)
+            frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+            
+            if frame_count <= 0 or fps <= 0:
+                logger.error(f"Invalid frame count or FPS for video: {video_path}")
+                return None
+                
+            # Calculate frames to sample at evenly distributed positions
+            frame_positions = []
+            if frame_count > frames_to_sample:
+                step = frame_count // (frames_to_sample + 1)
+                frame_positions = [step * (i + 1) for i in range(frames_to_sample)]
+            else:
+                # If video has fewer frames than samples, use all frames
+                frame_positions = list(range(frame_count))
+            
+            # Sample frames and calculate simple hash
+            frame_hashes = []
+            for pos in frame_positions:
+                video.set(cv2.CAP_PROP_POS_FRAMES, pos)
+                ret, frame = video.read()
+                if not ret:
+                    continue
+                    
+                # Resize frame to a small size for faster processing
+                small_frame = cv2.resize(frame, (32, 32))
+                # Convert to grayscale
+                gray_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2GRAY)
+                # Calculate average pixel value
+                avg_value = gray_frame.mean()
+                frame_hashes.append(str(int(avg_value)))
+            
+            video.release()
+            
+            # Create a hash string
+            video_hash = f"{width}x{height}_{fps:.2f}_{''.join(frame_hashes)}"
+            return video_hash
+            
+        except Exception as e:
+            logger.error(f"Error calculating video hash: {str(e)}")
+            return None
+    
+    def is_duplicate_content(self, video_path):
+        """
+        Check if a video has similar content to any previously processed video
+        
+        Args:
+            video_path (str): Path to the video file
+            
+        Returns:
+            bool: True if similar content was found, False otherwise
+        """
+        try:
+            from models import Post
+            from app import db
+            
+            # Calculate hash for current video
+            video_hash = self.calculate_video_hash(video_path)
+            if not video_hash:
+                return False
+                
+            # Basic hash structure: "{width}x{height}_{fps:.2f}_{pixel_means}"
+            # Extract dimensions and FPS to do a relaxed match
+            dimensions, fps, _ = video_hash.split('_', 2)
+            
+            # Check for any videos with similar dimensions and FPS
+            # This is just a first filter to avoid unnecessary hash comparisons
+            recent_posts = db.session.query(Post).filter(
+                Post.video_path != None
+            ).order_by(Post.id.desc()).limit(20).all()
+            
+            # Check each recent video
+            for post in recent_posts:
+                if not post.video_path or not os.path.exists(post.video_path):
+                    continue
+                    
+                # Get hash for this video
+                existing_hash = self.calculate_video_hash(post.video_path)
+                if not existing_hash:
+                    continue
+                    
+                # If exact hash match, definitely a duplicate
+                if existing_hash == video_hash:
+                    logger.warning(f"Found exact hash match between new video and {post.reddit_id}")
+                    return True
+                    
+                # Check for similar content with some tolerance
+                existing_dimensions, existing_fps, existing_pixel_data = existing_hash.split('_', 2)
+                
+                # Same dimensions is a strong indicator
+                if dimensions == existing_dimensions:
+                    # Compare pixel data with some tolerance
+                    matching_pixels = 0
+                    for i, digit in enumerate(existing_pixel_data):
+                        if i < len(existing_pixel_data) and digit == existing_pixel_data[i]:
+                            matching_pixels += 1
+                    
+                    # If more than 70% of the sampled pixel means match, consider it a duplicate
+                    similarity = matching_pixels / min(len(existing_pixel_data), len(existing_pixel_data))
+                    if similarity > 0.7:
+                        logger.warning(f"Found similar content match ({similarity:.2f}) with {post.reddit_id}")
+                        return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking for duplicate content: {str(e)}")
+            return False
+            
     def validate_video(self, video_path):
         """
         Validate a video file for integrity and compatibility

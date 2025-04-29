@@ -144,8 +144,8 @@
                                                     </div>
                                                     
                                                     {% if post.error %}
-                                                    <div class="alert alert-danger mt-3">
-                                                        <strong>Error:</strong> {{ post.error_message }}
+                                                    <div class="alert {{ 'alert-warning' if 'Duplicate' in post.error_message else 'alert-danger' }} mt-3">
+                                                        <strong>{{ 'Duplicate Detection:' if 'Duplicate' in post.error_message else 'Error:' }}</strong> {{ post.error_message }}
                                                     </div>
                                                     {% endif %}
                                                     

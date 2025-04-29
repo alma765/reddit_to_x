@@ -82,6 +82,8 @@ def logs():
         query = query.filter_by(posted_to_twitter=True)
     elif filter_type == 'failed':
         query = query.filter_by(error=True)
+    elif filter_type == 'duplicates':
+        query = query.filter(Post.error_message.like('%Duplicate%'))
     elif filter_type == 'pending':
         query = query.filter_by(posted_to_twitter=False, error=False)
         
