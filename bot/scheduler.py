@@ -25,11 +25,11 @@ twitter_client = None
 
 def process_and_post():
     """
-    Main function to fetch Reddit videos and post them to Twitter
+    Main function to fetch Reddit content (videos and images) and post them to Twitter
     """
     global reddit_client, twitter_client
     
-    logger.info("Starting Reddit video processing job")
+    logger.info("Starting Reddit content processing job")
     
     try:
         # Initialize Reddit client if not already done
@@ -62,15 +62,16 @@ def process_and_post():
                 from bot.twitter_client import MockTwitterClient
                 twitter_client = MockTwitterClient()
         
-        # Fetch video posts from Reddit
+        # Fetch content (videos and images) from Reddit
         try:
-            submissions = reddit_client.fetch_videos(SUBREDDITS, POSTS_LIMIT)
+            # Fetch both videos and images
+            submissions = reddit_client.fetch_content(SUBREDDITS, POSTS_LIMIT, content_type="all")
         except Exception as e:
-            logger.error(f"Error fetching videos from Reddit: {e}")
+            logger.error(f"Error fetching content from Reddit: {e}")
             return
         
         if not submissions:
-            logger.info("No video submissions found")
+            logger.info("No submissions found")
             return
         
         # Find posts we haven't processed yet

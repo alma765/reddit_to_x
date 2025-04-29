@@ -5,8 +5,7 @@ import os
 import sys
 import logging
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, Integer, Text, DateTime, Float, create_engine
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import text, create_engine
 from sqlalchemy.orm import sessionmaker
 
 # Configure logging
@@ -23,7 +22,6 @@ if not DATABASE_URL:
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 session = Session()
-Base = declarative_base()
 
 def run_migration():
     """Add image support to Post table"""
@@ -32,15 +30,15 @@ def run_migration():
         
         # Add content_type column
         logger.info("Adding content_type column")
-        session.execute('ALTER TABLE post ADD COLUMN IF NOT EXISTS content_type VARCHAR(10) DEFAULT \'video\'')
+        session.execute(text("ALTER TABLE post ADD COLUMN IF NOT EXISTS content_type VARCHAR(10) DEFAULT 'video'"))
         
         # Add image_path column
         logger.info("Adding image_path column")
-        session.execute('ALTER TABLE post ADD COLUMN IF NOT EXISTS image_path VARCHAR(255)')
+        session.execute(text("ALTER TABLE post ADD COLUMN IF NOT EXISTS image_path VARCHAR(255)"))
         
         # Add image_size_bytes column
         logger.info("Adding image_size_bytes column")
-        session.execute('ALTER TABLE post ADD COLUMN IF NOT EXISTS image_size_bytes INTEGER')
+        session.execute(text("ALTER TABLE post ADD COLUMN IF NOT EXISTS image_size_bytes INTEGER"))
         
         # Commit the changes
         session.commit()
