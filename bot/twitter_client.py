@@ -76,13 +76,34 @@ class TwitterClient:
                 logger.error("Error 403: Forbidden - Your app lacks proper permissions")
                 logger.error("Make sure your Twitter app has read/write permissions")
             elif "429" in error_msg or "Too Many Requests" in error_msg:
-                logger.error("Error 429: Rate limit exceeded - Will retry in 60 minutes")
+                # Try to extract the reset time from the response headers if available
+                reset_time = None
+                
+                # Check if we have access to the response object through the exception
+                if hasattr(e, 'response') and e.response is not None:
+                    reset_time = e.response.headers.get('x-rate-limit-reset')
+                
+                if reset_time:
+                    import datetime
+                    # Convert Unix timestamp to datetime
+                    reset_datetime = datetime.datetime.fromtimestamp(int(reset_time))
+                    now = datetime.datetime.now()
+                    minutes_remaining = max(0, int((reset_datetime - now).total_seconds() / 60))
+                    
+                    logger.error(f"Error 429: Rate limit exceeded - Will reset at {reset_datetime.isoformat()} (in {minutes_remaining} minutes)")
+                else:
+                    logger.error("Error 429: Rate limit exceeded - Will retry in 60 minutes")
                 
             # Propagate the exception to the caller
             raise
         
     def is_rate_limited(self):
-        """Check if the Twitter API is currently rate limited"""
+        """
+        Check if the Twitter API is currently rate limited
+        
+        Returns:
+            bool or tuple: False if not rate limited, or (True, reset_time) if rate limited
+        """
         try:
             # Test API v2 connection
             me = self.client.get_me()
@@ -91,7 +112,26 @@ class TwitterClient:
             error_msg = str(e)
             if "429" in error_msg or "Too Many Requests" in error_msg:
                 logger.error("Twitter API is rate limited")
-                return True
+                
+                # Try to extract the reset time from the response headers if available
+                reset_time = None
+                
+                # Check if we have access to the response object through the exception
+                if hasattr(e, 'response') and e.response is not None:
+                    reset_time = e.response.headers.get('x-rate-limit-reset')
+                
+                if reset_time:
+                    import datetime
+                    # Convert Unix timestamp to datetime
+                    reset_datetime = datetime.datetime.fromtimestamp(int(reset_time))
+                    logger.error(f"Rate limit will reset at: {reset_datetime.isoformat()}")
+                    return True, reset_datetime.isoformat()
+                
+                # Default 60-minute timeout if we can't get actual reset time
+                import datetime
+                default_reset = (datetime.datetime.now() + datetime.timedelta(hours=1)).isoformat()
+                return True, default_reset
+                
             # Other errors are not rate limit related
             return False
         

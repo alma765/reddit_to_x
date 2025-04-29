@@ -105,14 +105,22 @@ def index():
         # Make a test Twitter client
         test_client = TwitterClient()
         # Check if Twitter API is currently rate limited
-        if test_client.is_rate_limited():
+        rate_limited = test_client.is_rate_limited()
+        if rate_limited:
             twitter_rate_limited = True
             # Store this status
             SystemStatus.set_bool('twitter_rate_limited', True)
-            # Set rate limit expiration time to 1 hour from now
-            one_hour_later = (datetime.utcnow() + timedelta(hours=1)).isoformat()
-            SystemStatus.set_str('twitter_rate_limit_until', one_hour_later)
-            logger.warning(f"Twitter rate limit detected - API is returning 429 errors. Will retry after: {one_hour_later}")
+            
+            # Check if we have the actual reset time from Twitter's API
+            if isinstance(rate_limited, tuple) and len(rate_limited) > 1:
+                reset_time = rate_limited[1]  # This is an ISO format datetime string
+                SystemStatus.set_str('twitter_rate_limit_until', reset_time)
+                logger.warning(f"Twitter rate limit detected - Will reset at: {reset_time}")
+            else:
+                # Default to 1 hour if we don't have actual reset time
+                one_hour_later = (datetime.utcnow() + timedelta(hours=1)).isoformat()
+                SystemStatus.set_str('twitter_rate_limit_until', one_hour_later)
+                logger.warning(f"Twitter rate limit detected - Using default 1-hour expiration: {one_hour_later}")
     except Exception as e:
         logger.error(f"Error checking Twitter status: {e}")
         # If we get an exception that contains rate limit errors, mark as rate limited
@@ -121,10 +129,24 @@ def index():
             twitter_rate_limited = True
             # Store this status
             SystemStatus.set_bool('twitter_rate_limited', True)
-            # Set rate limit expiration time to 1 hour from now
-            one_hour_later = (datetime.utcnow() + timedelta(hours=1)).isoformat()
-            SystemStatus.set_str('twitter_rate_limit_until', one_hour_later)
-            logger.warning(f"Twitter rate limit flag set to: {twitter_rate_limited} until {one_hour_later}")
+            
+            # Try to extract reset time from the error message if it's available
+            if "will reset at" in str(e):
+                try:
+                    # Parse the reset time from the error message
+                    reset_info = str(e).split("Will reset at")[1].split("(")[0].strip()
+                    SystemStatus.set_str('twitter_rate_limit_until', reset_info)
+                    logger.warning(f"Twitter rate limit flag set to: {twitter_rate_limited} until {reset_info}")
+                except Exception:
+                    # Default to 1 hour if parsing fails
+                    one_hour_later = (datetime.utcnow() + timedelta(hours=1)).isoformat()
+                    SystemStatus.set_str('twitter_rate_limit_until', one_hour_later)
+                    logger.warning(f"Twitter rate limit flag set to: {twitter_rate_limited} until {one_hour_later}")
+            else:
+                # Default to 1 hour if no reset info
+                one_hour_later = (datetime.utcnow() + timedelta(hours=1)).isoformat()
+                SystemStatus.set_str('twitter_rate_limit_until', one_hour_later)
+                logger.warning(f"Twitter rate limit flag set to: {twitter_rate_limited} until {one_hour_later}")
     
     return render_template('index.html', 
                           total_posts=total_posts,
