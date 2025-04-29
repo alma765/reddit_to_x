@@ -40,7 +40,7 @@ class MockTwitterClient:
         
         # Generate mock tweet ID
         mock_tweet_id = str(uuid.uuid4()).replace('-', '')[:16]
-        mock_tweet_url = f"https://twitter.com/user/status/{mock_tweet_id}"
+        mock_tweet_url = f"https://x.com/WCorrespon25294/status/{mock_tweet_id}"
         
         logger.info(f"MOCK: Would post video ({file_size_mb:.2f} MB) to Twitter")
         logger.info(f"MOCK: Tweet text: {text[:50] if text else 'No text'}")
@@ -75,7 +75,7 @@ class MockTwitterClient:
         
         # Generate mock tweet ID
         mock_tweet_id = str(uuid.uuid4()).replace('-', '')[:16]
-        mock_tweet_url = f"https://twitter.com/user/status/{mock_tweet_id}"
+        mock_tweet_url = f"https://x.com/WCorrespon25294/status/{mock_tweet_id}"
         
         logger.info(f"MOCK: Would post image ({file_size_kb:.2f} KB) to Twitter")
         logger.info(f"MOCK: Tweet text: {text[:50] if text else 'No text'}")
@@ -325,7 +325,7 @@ class TwitterClient:
                 return self.mock_client.post_video(video_path, text)
             
             tweet_id = response.data['id']
-            tweet_url = f"https://twitter.com/user/status/{tweet_id}"
+            tweet_url = f"https://x.com/WCorrespon25294/status/{tweet_id}"
             
             logger.info(f"Video posted to Twitter: {tweet_url}")
             
@@ -432,7 +432,7 @@ class TwitterClient:
                 return self.mock_client.post_image(image_path, text, reply_to_id)
             
             tweet_id = response.data['id']
-            tweet_url = f"https://twitter.com/user/status/{tweet_id}"
+            tweet_url = f"https://x.com/WCorrespon25294/status/{tweet_id}"
             
             logger.info(f"Image posted to Twitter: {tweet_url}")
             

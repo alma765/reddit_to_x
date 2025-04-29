@@ -208,6 +208,7 @@ def api_status():
             'error_posts': 0,
             'in_progress': 0,
             'success_rate': 0,
+            'twitter_rate_limited': False,
             'error': str(e)
         }), 500
 
