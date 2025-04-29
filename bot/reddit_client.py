@@ -185,6 +185,57 @@ class RedditClient:
                 return self._download_reddit_video(submission_id, download_path)
             
             # Standard download for all other videos
+            # First, try using FFmpeg for better quality and audio handling
+            try:
+                logger.info(f"Attempting to download with FFmpeg from {video_url}")
+                
+                # Advanced FFmpeg command with audio handling
+                command = [
+                    'ffmpeg',
+                    '-i', video_url,
+                    '-c:v', 'copy',       # Copy video without re-encoding
+                    '-c:a', 'aac',        # Convert audio to AAC for compatibility
+                    '-b:a', '128k',       # Good audio quality
+                    '-af', 'volume=1.5',  # Boost volume slightly
+                    '-y',                 # Overwrite output if it exists
+                    download_path
+                ]
+                
+                process = subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                stdout, stderr = process.communicate()
+                
+                if process.returncode == 0:
+                    # FFmpeg successful, check size of the file
+                    final_size_mb = os.path.getsize(download_path) / (1024 * 1024)
+                    
+                    # If we've downloaded more than 100MB, abort
+                    if final_size_mb > 100:
+                        logger.warning(f"Downloaded file exceeds 100MB - too large for Twitter: {final_size_mb:.2f}MB")
+                        os.remove(download_path)
+                        return None
+                    
+                    logger.info(f"Successfully downloaded video with FFmpeg to {download_path} (Size: {final_size_mb:.2f}MB)")
+                    
+                    # Check if there's audio in the output
+                    stderr_output = stderr.decode('utf-8')
+                    if "Audio:" in stderr_output:
+                        logger.info("Audio stream detected in the downloaded file")
+                    else:
+                        logger.info("No audio stream detected in the downloaded file")
+                    
+                    return download_path
+                else:
+                    logger.warning(f"FFmpeg download failed: {stderr.decode('utf-8')}")
+                    # Fall back to regular download method
+            except Exception as e:
+                logger.warning(f"FFmpeg download attempt failed: {str(e)}")
+                # Fall back to regular download method
+            
+            # Fallback to standard download with requests
             # First, check the total file size
             response = requests.head(video_url, allow_redirects=True)
             if 'Content-Length' in response.headers:
@@ -200,7 +251,8 @@ class RedditClient:
                     logger.warning(f"Video is too large ({size_mb:.2f} MB > 100 MB) - skipping")
                     return None
             
-            # Download the video
+            # Download the video using requests as fallback
+            logger.info("Falling back to requests for download")
             download_response = requests.get(video_url, stream=True)
             download_response.raise_for_status()
             
@@ -272,11 +324,16 @@ class RedditClient:
                 # Use FFmpeg to download directly from the HLS source (preserves audio automatically)
                 logger.info(f"Using FFmpeg to download and process video from HLS URL")
                 
+                # More advanced FFmpeg command to prioritize audio streams
                 command = [
                     'ffmpeg',
                     '-i', hls_url,
-                    '-c', 'copy',  # Copy streams without re-encoding
-                    '-y',  # Overwrite output file if it exists
+                    '-c:v', 'copy',      # Copy video stream without re-encoding
+                    '-c:a', 'aac',       # Convert audio to AAC for better compatibility
+                    '-b:a', '128k',      # Set audio bitrate to reasonable quality
+                    '-af', 'volume=1.5', # Boost audio volume slightly for better audibility
+                    '-shortest',         # Use shortest stream duration
+                    '-y',                # Overwrite output file if it exists
                     download_path
                 ]
                 
