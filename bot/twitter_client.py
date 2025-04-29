@@ -143,88 +143,87 @@ class MockTwitterClient:
         }
 
 class TwitterClient:
-    def __init__(self, use_mock=False):
-        """Initialize Twitter API client using Tweepy"""
-        self.use_mock = use_mock
-        self._is_mock = False  # Will be set to True if we fall back to mock
+    def __init__(self):
+        """Initialize Twitter API client using Tweepy"""        
+        if not all([TWITTER_API_KEY, TWITTER_API_KEY_SECRET, 
+                   TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET]):
+            error_msg = "Twitter API credentials are missing"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
         
-        if use_mock or not all([TWITTER_API_KEY, TWITTER_API_KEY_SECRET, 
-                               TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET]):
-            logger.warning("Using mock Twitter client - tweets will not be posted to Twitter")
-            self.mock_client = MockTwitterClient()
-            self._is_mock = True
-            return
+        logger.info("Initializing Twitter client with OAuth 1.0a...")
+        logger.debug(f"API Key: {TWITTER_API_KEY[:4]}...{TWITTER_API_KEY[-4:] if len(TWITTER_API_KEY) > 8 else ''}")
+        logger.debug(f"Access Token: {TWITTER_ACCESS_TOKEN[:4]}...{TWITTER_ACCESS_TOKEN[-4:] if len(TWITTER_ACCESS_TOKEN) > 8 else ''}")
         
+        # Auth v1.1 (needed for media upload)
+        # Per X.com documentation, v1.1 endpoints are authenticated using OAuth 1.0a
+        self.auth = tweepy.OAuth1UserHandler(
+            consumer_key=TWITTER_API_KEY,
+            consumer_secret=TWITTER_API_KEY_SECRET,
+            access_token=TWITTER_ACCESS_TOKEN,
+            access_token_secret=TWITTER_ACCESS_TOKEN_SECRET,
+            callback=None
+        )
+        
+        # Initialize API v1.1 client
+        self.api = tweepy.API(self.auth)
+        
+        # API v2 client - also using OAuth1 credentials 
+        self.client = tweepy.Client(
+            consumer_key=TWITTER_API_KEY,
+            consumer_secret=TWITTER_API_KEY_SECRET,
+            access_token=TWITTER_ACCESS_TOKEN,
+            access_token_secret=TWITTER_ACCESS_TOKEN_SECRET
+        )
+        
+        # Test connection
         try:
-            logger.info("Initializing Twitter client with OAuth 1.0a...")
-            logger.debug(f"API Key: {TWITTER_API_KEY[:4]}...{TWITTER_API_KEY[-4:] if len(TWITTER_API_KEY) > 8 else ''}")
-            logger.debug(f"Access Token: {TWITTER_ACCESS_TOKEN[:4]}...{TWITTER_ACCESS_TOKEN[-4:] if len(TWITTER_ACCESS_TOKEN) > 8 else ''}")
+            # Test API v1.1 connection
+            logger.info("Testing Twitter API v1.1 connection...")
+            user = self.api.verify_credentials()
+            logger.info(f"Twitter client initialized - authenticated as @{user.screen_name}")
             
-            # Auth v1.1 (needed for media upload)
-            # Per X.com documentation, v1.1 endpoints are authenticated using OAuth 1.0a
-            self.auth = tweepy.OAuth1UserHandler(
-                consumer_key=TWITTER_API_KEY,
-                consumer_secret=TWITTER_API_KEY_SECRET,
-                access_token=TWITTER_ACCESS_TOKEN,
-                access_token_secret=TWITTER_ACCESS_TOKEN_SECRET,
-                callback=None
-            )
+            # Test API v2 connection
+            logger.info("Testing Twitter API v2 connection...")
+            me = self.client.get_me()
+            if me.data:
+                logger.info(f"Twitter API v2 connection successful - user ID: {me.data.id}")
             
-            # Initialize API v1.1 client
-            self.api = tweepy.API(self.auth)
+            logger.info(f"Twitter API connection successful - app is authorized for this account")
+        except tweepy.TweepyException as e:
+            error_msg = str(e)
+            logger.error(f"Twitter authentication failed: {error_msg}")
             
-            # API v2 client - also using OAuth1 credentials 
-            self.client = tweepy.Client(
-                consumer_key=TWITTER_API_KEY,
-                consumer_secret=TWITTER_API_KEY_SECRET,
-                access_token=TWITTER_ACCESS_TOKEN,
-                access_token_secret=TWITTER_ACCESS_TOKEN_SECRET
-            )
-            
-            # Test connection
-            try:
-                # Test API v1.1 connection
-                logger.info("Testing Twitter API v1.1 connection...")
-                user = self.api.verify_credentials()
-                logger.info(f"Twitter client initialized - authenticated as @{user.screen_name}")
+            # Log more detailed error information
+            if "401" in error_msg:
+                logger.error("Error 401: Unauthorized - Your credentials may be invalid or expired")
+                logger.error("Make sure you have:") 
+                logger.error("1. Correct API key and secret")
+                logger.error("2. Correct access token and secret with appropriate permissions")
+                logger.error("3. The API key and access token match the same application")
+                logger.error("4. Your app has the appropriate Twitter API access level")
+            elif "403" in error_msg:
+                logger.error("Error 403: Forbidden - Your app lacks proper permissions")
+                logger.error("Make sure your Twitter app has read/write permissions")
+            elif "429" in error_msg or "Too Many Requests" in error_msg:
+                logger.error("Error 429: Rate limit exceeded - Will retry in 60 minutes")
                 
-                # Test API v2 connection
-                logger.info("Testing Twitter API v2 connection...")
-                me = self.client.get_me()
-                if me.data:
-                    logger.info(f"Twitter API v2 connection successful - user ID: {me.data.id}")
-                
-                logger.info(f"Twitter API connection successful - app is authorized for this account")
-            except tweepy.TweepyException as e:
-                error_msg = str(e)
-                logger.error(f"Twitter authentication failed: {error_msg}")
-                
-                # Log more detailed error information
-                if "401" in error_msg:
-                    logger.error("Error 401: Unauthorized - Your credentials may be invalid or expired")
-                    logger.error("Make sure you have:") 
-                    logger.error("1. Correct API key and secret")
-                    logger.error("2. Correct access token and secret with appropriate permissions")
-                    logger.error("3. The API key and access token match the same application")
-                    logger.error("4. Your app has the appropriate Twitter API access level")
-                elif "403" in error_msg:
-                    logger.error("Error 403: Forbidden - Your app lacks proper permissions")
-                    logger.error("Make sure your Twitter app has read/write permissions")
-                
-                logger.warning("Falling back to mock Twitter client")
-                self.use_mock = True
-                self.mock_client = MockTwitterClient()
-                
-        except Exception as e:
-            logger.error(f"Error initializing Twitter client: {str(e)}")
-            logger.warning("Falling back to mock Twitter client")
-            self.use_mock = True
-            self.mock_client = MockTwitterClient()
-    
-    @property
-    def is_mock(self):
-        """Return whether this client is using mock mode"""
-        return self.use_mock
+            # Propagate the exception to the caller
+            raise
+        
+    def is_rate_limited(self):
+        """Check if the Twitter API is currently rate limited"""
+        try:
+            # Test API v2 connection
+            me = self.client.get_me()
+            return False  # If we get here, we're not rate limited
+        except tweepy.TweepyException as e:
+            error_msg = str(e)
+            if "429" in error_msg or "Too Many Requests" in error_msg:
+                logger.error("Twitter API is rate limited")
+                return True
+            # Other errors are not rate limit related
+            return False
         
     def post_video(self, video_path, text=None):
         """
@@ -236,111 +235,77 @@ class TwitterClient:
             
         Returns:
             dict: Response from Twitter API containing post ID and URL
+            
+        Raises:
+            FileNotFoundError: If the video file doesn't exist
+            tweepy.TweepyException: If there's an error posting to Twitter
         """
         if not os.path.exists(video_path):
             logger.error(f"Video file not found: {video_path}")
             raise FileNotFoundError(f"Video file not found: {video_path}")
         
-        # If we're using the mock client, delegate to it
-        if self.use_mock:
-            logger.warning("Using mock Twitter client for posting")
-            return self.mock_client.post_video(video_path, text)
+        # First check if we're rate limited
+        if self.is_rate_limited():
+            error_msg = "Twitter rate limit reached! Will retry in 60 minutes"
+            logger.error(error_msg)
+            raise tweepy.TweepyException(error_msg)
         
-        try:
-            # First test that we can connect to the Twitter API
-            logger.info("Testing Twitter API connection...")
-            try:
-                # Simple API call to verify credentials
-                user = self.api.verify_credentials()
-                logger.info(f"Authenticated as: @{user.screen_name}")
-            except Exception as auth_error:
-                logger.error(f"Authentication error: {str(auth_error)}")
-                logger.warning("Falling back to mock Twitter client")
-                self.use_mock = True
-                self.mock_client = MockTwitterClient()
-                return self.mock_client.post_video(video_path, text)
+        # First test that we can connect to the Twitter API
+        logger.info("Testing Twitter API connection...")
+        user = self.api.verify_credentials()
+        logger.info(f"Authenticated as: @{user.screen_name}")
                 
-            # Upload the video using v1.1 API
-            # Following X.com documentation on media uploads
-            # https://docs.x.com/resources/media/upload-media
+        # Upload the video using v1.1 API
+        # Following X.com documentation on media uploads
+        # https://docs.x.com/resources/media/upload-media
+        
+        file_size_mb = os.path.getsize(video_path) / (1024 * 1024)
+        logger.info(f"Uploading video: {video_path} (size: {file_size_mb:.2f} MB)")
+        
+        # Use chunked upload for larger videos
+        # This is required for videos > 5MB
+        if file_size_mb > 5:
+            logger.info("Using chunked upload for video > 5MB")
             
-            file_size_mb = os.path.getsize(video_path) / (1024 * 1024)
-            logger.info(f"Uploading video: {video_path} (size: {file_size_mb:.2f} MB)")
-            
-            try:
-                # Use chunked upload for larger videos
-                # This is required for videos > 5MB
-                if file_size_mb > 5:
-                    logger.info("Using chunked upload for video > 5MB")
-                    
-                    # Tweepy handles chunked uploads automatically when using media_upload 
-                    # with a large file and appropriate category
-                    media = self.api.media_upload(
-                        filename=video_path,
-                        media_category='tweet_video',
-                        chunked=True
-                    )
-                else:
-                    logger.info("Using standard upload for video < 5MB")
-                    media = self.api.media_upload(
-                        filename=video_path,
-                        media_category='tweet_video'
-                    )
-                
-                # Wait for media processing to complete
-                media_id = media.media_id_string
-                logger.info(f"Media uploaded with ID: {media_id}, waiting for processing...")
-                
-                # Check if media is ready (chunked upload can take time to process)
-                self._wait_for_media_processing(media_id)
-            except Exception as media_error:
-                logger.error(f"Media upload error: {str(media_error)}")
-                logger.warning("Falling back to mock Twitter client due to media upload error")
-                self.use_mock = True
-                self.mock_client = MockTwitterClient()
-                return self.mock_client.post_video(video_path, text)
-            
-            # Create the tweet with media using v2 API
-            tweet_text = text or "Combat footage from Reddit r/CombatFootage"
-            logger.info(f"Posting tweet with text: {tweet_text[:50]}...")
-            
-            try:
-                response = self.client.create_tweet(
-                    text=tweet_text[:280],  # Ensure text fits within Twitter limit
-                    media_ids=[media_id]
-                )
-            except Exception as tweet_error:
-                error_msg = str(tweet_error)
-                logger.error(f"Tweet creation error: {error_msg}")
-                
-                # Add specific handling for rate limit errors
-                if "429" in error_msg or "Too Many Requests" in error_msg:
-                    logger.error("Twitter rate limit reached! This is a temporary condition.")
-                    logger.error("Twitter limits how many posts you can make in a time period.")
-                    logger.error("Please wait a while (15-30 minutes) before trying again.")
-                
-                logger.warning("Falling back to mock Twitter client due to tweet creation error")
-                self.use_mock = True
-                self.mock_client = MockTwitterClient()
-                return self.mock_client.post_video(video_path, text)
-            
-            tweet_id = response.data['id']
-            tweet_url = f"https://x.com/WCorrespon25294/status/{tweet_id}"
-            
-            logger.info(f"Video posted to Twitter: {tweet_url}")
-            
-            return {
-                'tweet_id': tweet_id,
-                'tweet_url': tweet_url
-            }
-            
-        except Exception as e:
-            logger.error(f"Error posting video to Twitter: {str(e)}")
-            # Fall back to mock Twitter client as a last resort
-            logger.warning("Falling back to mock Twitter client due to unexpected error")
-            self.use_mock = True
-            self.mock_client = MockTwitterClient()
-            return self.mock_client.post_video(video_path, text)
+            # Tweepy handles chunked uploads automatically when using media_upload 
+            # with a large file and appropriate category
+            media = self.api.media_upload(
+                filename=video_path,
+                media_category='tweet_video',
+                chunked=True
+            )
+        else:
+            logger.info("Using standard upload for video < 5MB")
+            media = self.api.media_upload(
+                filename=video_path,
+                media_category='tweet_video'
+            )
+        
+        # Wait for media processing to complete
+        media_id = media.media_id_string
+        logger.info(f"Media uploaded with ID: {media_id}, waiting for processing...")
+        
+        # Check if media is ready (chunked upload can take time to process)
+        self._wait_for_media_processing(media_id)
+        
+        # Create the tweet with media using v2 API
+        tweet_text = text or "Combat footage from Reddit r/CombatFootage"
+        logger.info(f"Posting tweet with text: {tweet_text[:50]}...")
+        
+        response = self.client.create_tweet(
+            text=tweet_text[:280],  # Ensure text fits within Twitter limit
+            media_ids=[media_id]
+        )
+        
+        tweet_id = response.data['id']
+        tweet_url = f"https://x.com/WCorrespon25294/status/{tweet_id}"
+        
+        logger.info(f"Video posted to Twitter: {tweet_url}")
+        
+        return {
+            'tweet_id': tweet_id,
+            'tweet_url': tweet_url
+        }
     
     def post_image(self, image_path, text=None, reply_to_id=None):
         """
@@ -353,101 +318,66 @@ class TwitterClient:
             
         Returns:
             dict: Response from Twitter API containing post ID and URL
+            
+        Raises:
+            FileNotFoundError: If the image file doesn't exist
+            tweepy.TweepyException: If there's an error posting to Twitter
         """
         if not os.path.exists(image_path):
             logger.error(f"Image file not found: {image_path}")
             raise FileNotFoundError(f"Image file not found: {image_path}")
         
-        # If we're using the mock client, delegate to it
-        if self.use_mock:
-            logger.warning("Using mock Twitter client for posting")
-            return self.mock_client.post_image(image_path, text, reply_to_id)
+        # First check if we're rate limited
+        if self.is_rate_limited():
+            error_msg = "Twitter rate limit reached! Will retry in 60 minutes"
+            logger.error(error_msg)
+            raise tweepy.TweepyException(error_msg)
         
-        try:
-            # First test that we can connect to the Twitter API
-            logger.info("Testing Twitter API connection...")
-            try:
-                # Simple API call to verify credentials
-                user = self.api.verify_credentials()
-                logger.info(f"Authenticated as: @{user.screen_name}")
-            except Exception as auth_error:
-                logger.error(f"Authentication error: {str(auth_error)}")
-                logger.warning("Falling back to mock Twitter client")
-                self.use_mock = True
-                self.mock_client = MockTwitterClient()
-                return self.mock_client.post_image(image_path, text, reply_to_id)
+        # First test that we can connect to the Twitter API
+        logger.info("Testing Twitter API connection...")
+        user = self.api.verify_credentials()
+        logger.info(f"Authenticated as: @{user.screen_name}")
                 
-            # Upload the image using v1.1 API
-            file_size_kb = os.path.getsize(image_path) / 1024
-            logger.info(f"Uploading image: {image_path} (size: {file_size_kb:.2f} KB)")
+        # Upload the image using v1.1 API
+        file_size_kb = os.path.getsize(image_path) / 1024
+        logger.info(f"Uploading image: {image_path} (size: {file_size_kb:.2f} KB)")
+        
+        media = self.api.media_upload(
+            filename=image_path,
+            media_category='tweet_image'
+        )
             
-            try:
-                media = self.api.media_upload(
-                    filename=image_path,
-                    media_category='tweet_image'
-                )
-                
-                # Image uploads are usually processed immediately, but just in case
-                media_id = media.media_id_string
-                logger.info(f"Image uploaded with ID: {media_id}")
-                
-            except Exception as media_error:
-                logger.error(f"Media upload error: {str(media_error)}")
-                logger.warning("Falling back to mock Twitter client due to media upload error")
-                self.use_mock = True
-                self.mock_client = MockTwitterClient()
-                return self.mock_client.post_image(image_path, text, reply_to_id)
-            
-            # Create the tweet with media using v2 API
-            tweet_text = text or "Image from Reddit"
-            logger.info(f"Posting tweet with text: {tweet_text[:50]}...")
-            
-            try:
-                # Handle reply if needed
-                if reply_to_id:
-                    logger.info(f"Posting as reply to tweet ID: {reply_to_id}")
-                    response = self.client.create_tweet(
-                        text=tweet_text[:280],  # Ensure text fits within Twitter limit
-                        media_ids=[media_id],
-                        in_reply_to_tweet_id=reply_to_id
-                    )
-                else:
-                    response = self.client.create_tweet(
-                        text=tweet_text[:280],  # Ensure text fits within Twitter limit
-                        media_ids=[media_id]
-                    )
-            except Exception as tweet_error:
-                error_msg = str(tweet_error)
-                logger.error(f"Tweet creation error: {error_msg}")
-                
-                # Add specific handling for rate limit errors
-                if "429" in error_msg or "Too Many Requests" in error_msg:
-                    logger.error("Twitter rate limit reached! This is a temporary condition.")
-                    logger.error("Twitter limits how many posts you can make in a time period.")
-                    logger.error("Please wait a while (15-30 minutes) before trying again.")
-                
-                logger.warning("Falling back to mock Twitter client due to tweet creation error")
-                self.use_mock = True
-                self.mock_client = MockTwitterClient()
-                return self.mock_client.post_image(image_path, text, reply_to_id)
-            
-            tweet_id = response.data['id']
-            tweet_url = f"https://x.com/WCorrespon25294/status/{tweet_id}"
-            
-            logger.info(f"Image posted to Twitter: {tweet_url}")
-            
-            return {
-                'tweet_id': tweet_id,
-                'tweet_url': tweet_url
-            }
-            
-        except Exception as e:
-            logger.error(f"Error posting image to Twitter: {str(e)}")
-            # Fall back to mock Twitter client as a last resort
-            logger.warning("Falling back to mock Twitter client due to unexpected error")
-            self.use_mock = True
-            self.mock_client = MockTwitterClient()
-            return self.mock_client.post_image(image_path, text, reply_to_id)
+        # Image uploads are usually processed immediately, but just in case
+        media_id = media.media_id_string
+        logger.info(f"Image uploaded with ID: {media_id}")
+        
+        # Create the tweet with media using v2 API
+        tweet_text = text or "Image from Reddit"
+        logger.info(f"Posting tweet with text: {tweet_text[:50]}...")
+        
+        # Handle reply if needed
+        if reply_to_id:
+            logger.info(f"Posting as reply to tweet ID: {reply_to_id}")
+            response = self.client.create_tweet(
+                text=tweet_text[:280],  # Ensure text fits within Twitter limit
+                media_ids=[media_id],
+                in_reply_to_tweet_id=reply_to_id
+            )
+        else:
+            response = self.client.create_tweet(
+                text=tweet_text[:280],  # Ensure text fits within Twitter limit
+                media_ids=[media_id]
+            )
+        
+        tweet_id = response.data['id']
+        tweet_url = f"https://x.com/WCorrespon25294/status/{tweet_id}"
+        
+        logger.info(f"Image posted to Twitter: {tweet_url}")
+        
+        return {
+            'tweet_id': tweet_id,
+            'tweet_url': tweet_url
+        }
             
     def create_thread_with_images(self, image_paths, main_text=None, continue_texts=None):
         """
@@ -460,62 +390,58 @@ class TwitterClient:
             
         Returns:
             dict: Information about the created thread including all tweet IDs and URLs
+            
+        Raises:
+            ValueError: If no images are provided
+            tweepy.TweepyException: If there's an error posting to Twitter
         """
         if not image_paths:
-            logger.error("No images provided for thread creation")
-            return {
-                'success': False,
-                'error': 'No images provided'
-            }
-            
-        # If we're using the mock client, delegate to it
-        if self.use_mock:
-            logger.warning("Using mock Twitter client for thread creation")
-            return self.mock_client.create_thread_with_images(image_paths, main_text, continue_texts)
+            error_msg = "No images provided for thread creation"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
         
-        try:
-            # Create the first tweet with the first image
-            first_tweet = self.post_image(image_paths[0], main_text)
+        # First check if we're rate limited
+        if self.is_rate_limited():
+            error_msg = "Twitter rate limit reached! Will retry in 60 minutes"
+            logger.error(error_msg)
+            raise tweepy.TweepyException(error_msg)
             
-            thread_tweets = [first_tweet]
-            parent_id = first_tweet['tweet_id']
-            
-            # If we have more images, create reply tweets
-            for i, image_path in enumerate(image_paths[1:]):
-                # Get text for this continuation, if provided
-                text = None
-                if continue_texts and i < len(continue_texts):
-                    text = continue_texts[i]
-                else:
-                    # Default continuation text
-                    text = f"Continued ({i+2}/{len(image_paths)})"
-                    
-                # Post as reply to previous tweet
-                try:
-                    reply_tweet = self.post_image(image_path, text, reply_to_id=parent_id)
-                    thread_tweets.append(reply_tweet)
-                    
-                    # Update parent for next tweet in thread
-                    parent_id = reply_tweet['tweet_id']
-                except Exception as e:
-                    logger.error(f"Error creating thread at image {i+2}: {str(e)}")
-                    break
+        # Create the first tweet with the first image
+        first_tweet = self.post_image(image_paths[0], main_text)
+        
+        thread_tweets = [first_tweet]
+        parent_id = first_tweet['tweet_id']
+        
+        # If we have more images, create reply tweets
+        for i, image_path in enumerate(image_paths[1:]):
+            # Get text for this continuation, if provided
+            text = None
+            if continue_texts and i < len(continue_texts):
+                text = continue_texts[i]
+            else:
+                # Default continuation text
+                text = f"Continued ({i+2}/{len(image_paths)})"
                 
-            logger.info(f"Created thread with {len(thread_tweets)} tweets")
-            
-            return {
-                'success': True,
-                'tweets': thread_tweets,
-                'first_tweet_id': first_tweet['tweet_id'],
-                'first_tweet_url': first_tweet['tweet_url']
-            }
-        except Exception as e:
-            logger.error(f"Error creating Twitter thread: {str(e)}")
-            # Fall back to mock Twitter client as a last resort
-            logger.warning("Falling back to mock Twitter client due to unexpected error")
-            self.use_mock = True
-            self.mock_client = MockTwitterClient()
-            return self.mock_client.create_thread_with_images(image_paths, main_text, continue_texts)
+            # Post as reply to previous tweet
+            try:
+                reply_tweet = self.post_image(image_path, text, reply_to_id=parent_id)
+                thread_tweets.append(reply_tweet)
+                
+                # Update parent for next tweet in thread
+                parent_id = reply_tweet['tweet_id']
+            except Exception as e:
+                logger.error(f"Error creating thread at image {i+2}: {str(e)}")
+                # Propagate the exception to stop the thread creation
+                raise
+        
+        logger.info(f"Created thread with {len(thread_tweets)} tweets")
+        
+        return {
+            'success': True,
+            'tweets': thread_tweets,
+            'first_tweet_id': first_tweet['tweet_id'],
+            'first_tweet_url': first_tweet['tweet_url']
+        }
 
     def _wait_for_media_processing(self, media_id):
         """
