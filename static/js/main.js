@@ -25,33 +25,80 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Auto-refresh dashboard data
     if (window.location.pathname === '/') {
-        setInterval(function() {
-            fetch('/api/status')
-                .then(response => response.json())
-                .then(data => {
-                    // Update status badge
-                    const statusBadge = document.querySelector('.card-header .badge');
-                    if (statusBadge) {
-                        statusBadge.className = `badge bg-${data.status === 'running' ? 'success' : 'danger'}`;
-                        statusBadge.textContent = data.status === 'running' ? 'Running' : 'Stopped';
+        // Initial data load
+        updateDashboardData();
+        
+        // Set interval for regular updates
+        setInterval(updateDashboardData, 30000); // Refresh every 30 seconds
+    }
+    
+    // Function to update dashboard data from API
+    function updateDashboardData() {
+        fetch('/api/status')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`API returned status ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Update status badge
+                const statusBadge = document.querySelector('.card-header .badge');
+                if (statusBadge) {
+                    let badgeClass = 'badge bg-';
+                    let badgeText = '';
+                    
+                    switch(data.status) {
+                        case 'running':
+                            badgeClass += 'success';
+                            badgeText = 'Running';
+                            break;
+                        case 'stopped':
+                            badgeClass += 'danger';
+                            badgeText = 'Stopped';
+                            break;
+                        default:
+                            badgeClass += 'warning';
+                            badgeText = 'Unknown';
                     }
                     
-                    // Update stats
-                    const statBoxes = document.querySelectorAll('.stat-box h3');
-                    if (statBoxes.length >= 3) {
-                        statBoxes[0].textContent = data.total_posts;
-                        statBoxes[1].textContent = data.successful_posts;
-                        statBoxes[2].textContent = data.failed_posts;
-                    }
+                    statusBadge.className = badgeClass;
+                    statusBadge.textContent = badgeText;
+                }
+                
+                // Update stats
+                const statBoxes = document.querySelectorAll('.stat-box h3');
+                if (statBoxes.length >= 3) {
+                    statBoxes[0].textContent = data.total_posts || 0;
+                    statBoxes[1].textContent = data.successful_posts || 0;
+                    statBoxes[2].textContent = data.failed_posts || 0;
+                }
+                
+                // Update progress bar
+                const progressBar = document.querySelector('.progress-bar');
+                if (progressBar) {
+                    const successRate = Math.round(data.success_rate || 0);
+                    progressBar.style.width = `${successRate}%`;
+                    progressBar.textContent = `${successRate}%`;
                     
-                    // Update progress bar
-                    const progressBar = document.querySelector('.progress-bar');
-                    if (progressBar) {
-                        progressBar.style.width = `${data.success_rate}%`;
-                        progressBar.textContent = `${Math.round(data.success_rate)}%`;
+                    // Update progress bar color based on success rate
+                    if (successRate >= 70) {
+                        progressBar.className = 'progress-bar bg-success';
+                    } else if (successRate >= 40) {
+                        progressBar.className = 'progress-bar bg-warning';
+                    } else {
+                        progressBar.className = 'progress-bar bg-danger';
                     }
-                })
-                .catch(error => console.error('Error fetching status:', error));
-        }, 30000); // Refresh every 30 seconds
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching status:', error);
+                // Visual indicator that something went wrong
+                const statusBadge = document.querySelector('.card-header .badge');
+                if (statusBadge) {
+                    statusBadge.className = 'badge bg-warning';
+                    statusBadge.textContent = 'Error';
+                }
+            });
     }
 });

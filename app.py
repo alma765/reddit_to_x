@@ -108,17 +108,31 @@ def api_status():
     """JSON endpoint for status checks"""
     from models import Post
     
-    total_posts = db.session.query(Post).count()
-    successful_posts = db.session.query(Post).filter_by(posted_to_twitter=True).count()
-    failed_posts = db.session.query(Post).filter_by(error=True).count()
-    
-    return jsonify({
-        'status': 'running' if scheduler.running else 'stopped',
-        'total_posts': total_posts,
-        'successful_posts': successful_posts,
-        'failed_posts': failed_posts,
-        'success_rate': (successful_posts / total_posts * 100) if total_posts > 0 else 0
-    })
+    try:
+        total_posts = db.session.query(Post).count()
+        successful_posts = db.session.query(Post).filter_by(posted_to_twitter=True).count()
+        failed_posts = db.session.query(Post).filter_by(error=True).count()
+        in_progress = total_posts - successful_posts - failed_posts
+        
+        return jsonify({
+            'status': 'running' if scheduler.running else 'stopped',
+            'total_posts': total_posts,
+            'successful_posts': successful_posts,
+            'failed_posts': failed_posts,
+            'in_progress': in_progress,
+            'success_rate': (successful_posts / total_posts * 100) if total_posts > 0 else 0
+        })
+    except Exception as e:
+        logger.error(f"Error in API status: {str(e)}")
+        return jsonify({
+            'status': 'unknown',
+            'total_posts': 0,
+            'successful_posts': 0,
+            'failed_posts': 0,
+            'in_progress': 0,
+            'success_rate': 0,
+            'error': str(e)
+        }), 500
 
 @app.route('/api/start_bot', methods=['POST'])
 def start_bot():
