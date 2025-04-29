@@ -41,6 +41,15 @@
                 {% endfor %}
             {% endif %}
         {% endwith %}
+        
+        {% if twitter_rate_limited %}
+        <div class="alert alert-warning">
+            <h4 class="alert-heading"><i data-feather="alert-triangle"></i> Twitter Rate Limit Reached</h4>
+            <p>Twitter has temporarily rate-limited this account. This means the bot can still run, but posts will be simulated rather than actually posted to Twitter until the rate limit expires.</p>
+            <hr>
+            <p class="mb-0">Rate limits typically reset after 15-30 minutes. The bot will automatically resume normal posting when the rate limit expires.</p>
+        </div>
+        {% endif %}
 
         <div class="row mb-4">
             <div class="col-md-6">

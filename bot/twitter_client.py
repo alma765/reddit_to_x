@@ -310,7 +310,15 @@ class TwitterClient:
                     media_ids=[media_id]
                 )
             except Exception as tweet_error:
-                logger.error(f"Tweet creation error: {str(tweet_error)}")
+                error_msg = str(tweet_error)
+                logger.error(f"Tweet creation error: {error_msg}")
+                
+                # Add specific handling for rate limit errors
+                if "429" in error_msg or "Too Many Requests" in error_msg:
+                    logger.error("Twitter rate limit reached! This is a temporary condition.")
+                    logger.error("Twitter limits how many posts you can make in a time period.")
+                    logger.error("Please wait a while (15-30 minutes) before trying again.")
+                
                 logger.warning("Falling back to mock Twitter client due to tweet creation error")
                 self.use_mock = True
                 self.mock_client = MockTwitterClient()
@@ -409,7 +417,15 @@ class TwitterClient:
                         media_ids=[media_id]
                     )
             except Exception as tweet_error:
-                logger.error(f"Tweet creation error: {str(tweet_error)}")
+                error_msg = str(tweet_error)
+                logger.error(f"Tweet creation error: {error_msg}")
+                
+                # Add specific handling for rate limit errors
+                if "429" in error_msg or "Too Many Requests" in error_msg:
+                    logger.error("Twitter rate limit reached! This is a temporary condition.")
+                    logger.error("Twitter limits how many posts you can make in a time period.")
+                    logger.error("Please wait a while (15-30 minutes) before trying again.")
+                
                 logger.warning("Falling back to mock Twitter client due to tweet creation error")
                 self.use_mock = True
                 self.mock_client = MockTwitterClient()
