@@ -247,6 +247,10 @@ def run_now():
     from bot.scheduler import process_and_post
     
     try:
+        # First clean up any mock Twitter records
+        cleanup_mock_twitter_records()
+        
+        # Then run the processing
         process_and_post()
         flash('Bot executed successfully', 'success')
     except Exception as e:
@@ -254,6 +258,47 @@ def run_now():
         flash(f'Error running bot: {str(e)}', 'danger')
     
     return redirect(url_for('index'))
+
+def cleanup_mock_twitter_records():
+    """
+    Check for and clean up any mock Twitter records in the database
+    This function fixes records that show a post was successful but actually failed due to rate limits
+    """
+    from models import Post
+    import re
+    
+    try:
+        # Find posts with suspicious Twitter IDs (non-numeric or starting with 'c', 'mock', etc.)
+        suspect_records = db.session.query(Post).filter(
+            (Post.posted_to_twitter == True) & 
+            (
+                (Post.twitter_post_id.op('~')('^[a-zA-Z]')) |  # Starts with letter
+                (Post.twitter_post_id.like('mock%')) |         # Starts with "mock"
+                (Post.twitter_post_id.like('c%'))              # Starts with "c"
+            )
+        ).all()
+        
+        count = 0
+        for post in suspect_records:
+            logger.warning(f"Found suspicious Twitter post record: ID {post.id}, Reddit ID {post.reddit_id}, Twitter ID {post.twitter_post_id}")
+            
+            # Update the record to show it properly failed
+            post.posted_to_twitter = False
+            post.twitter_post_id = None
+            post.twitter_post_url = None
+            post.error = True
+            post.error_message = "Twitter rate limit reached. Will retry later."
+            
+            db.session.add(post)
+            count += 1
+            
+        if count > 0:
+            db.session.commit()
+            logger.info(f"Cleaned up {count} mock Twitter records")
+            
+    except Exception as e:
+        logger.exception(f"Error cleaning up mock Twitter records: {str(e)}")
+        # Don't reraise - this is a cleanup function and shouldn't stop main execution
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
