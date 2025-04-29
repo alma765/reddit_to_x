@@ -52,13 +52,14 @@ class MockTwitterClient:
             'tweet_url': mock_tweet_url
         }
         
-    def post_image(self, image_path, text=None):
+    def post_image(self, image_path, text=None, reply_to_id=None):
         """
         Simulate posting an image to Twitter
         
         Args:
             image_path (str): Path to the image file
             text (str): Text to accompany the post
+            reply_to_id (str): Optional tweet ID to reply to (for creating threads)
             
         Returns:
             dict: Mock response with tweet ID and URL
@@ -78,12 +79,67 @@ class MockTwitterClient:
         
         logger.info(f"MOCK: Would post image ({file_size_kb:.2f} KB) to Twitter")
         logger.info(f"MOCK: Tweet text: {text[:50] if text else 'No text'}")
+        
+        if reply_to_id:
+            logger.info(f"MOCK: As reply to tweet: {reply_to_id}")
+            
         logger.info(f"MOCK: Tweet ID: {mock_tweet_id}")
         logger.info(f"MOCK: Tweet URL: {mock_tweet_url}")
         
         return {
             'tweet_id': mock_tweet_id,
             'tweet_url': mock_tweet_url
+        }
+        
+    def create_thread_with_images(self, image_paths, main_text=None, continue_texts=None):
+        """
+        Simulate creating a Twitter thread with multiple images
+        
+        Args:
+            image_paths (list): List of paths to image files
+            main_text (str): Text for the first tweet
+            continue_texts (list): Optional list of texts for continuation tweets
+            
+        Returns:
+            dict: Information about the created thread including all tweet IDs and URLs
+        """
+        if not image_paths:
+            logger.error("No images provided for thread creation")
+            return {
+                'success': False,
+                'error': 'No images provided'
+            }
+            
+        # Create the first tweet with the first image
+        first_tweet = self.post_image(image_paths[0], main_text)
+        
+        thread_tweets = [first_tweet]
+        parent_id = first_tweet['tweet_id']
+        
+        # If we have more images, create reply tweets
+        for i, image_path in enumerate(image_paths[1:]):
+            # Get text for this continuation, if provided
+            text = None
+            if continue_texts and i < len(continue_texts):
+                text = continue_texts[i]
+            else:
+                # Default continuation text
+                text = f"Continued ({i+2}/{len(image_paths)})"
+                
+            # Post as reply to previous tweet
+            reply_tweet = self.post_image(image_path, text, reply_to_id=parent_id)
+            thread_tweets.append(reply_tweet)
+            
+            # Update parent for next tweet in thread
+            parent_id = reply_tweet['tweet_id']
+            
+        logger.info(f"MOCK: Created thread with {len(thread_tweets)} tweets")
+        
+        return {
+            'success': True,
+            'tweets': thread_tweets,
+            'first_tweet_id': first_tweet['tweet_id'],
+            'first_tweet_url': first_tweet['tweet_url']
         }
 
 class TwitterClient:
@@ -271,13 +327,14 @@ class TwitterClient:
             self.mock_client = MockTwitterClient()
             return self.mock_client.post_video(video_path, text)
     
-    def post_image(self, image_path, text=None):
+    def post_image(self, image_path, text=None, reply_to_id=None):
         """
         Post an image to Twitter
         
         Args:
             image_path (str): Path to the image file
             text (str): Text to accompany the post
+            reply_to_id (str): Optional tweet ID to reply to (for creating threads)
             
         Returns:
             dict: Response from Twitter API containing post ID and URL
@@ -289,7 +346,7 @@ class TwitterClient:
         # If we're using the mock client, delegate to it
         if self.use_mock:
             logger.warning("Using mock Twitter client for posting")
-            return self.mock_client.post_image(image_path, text)
+            return self.mock_client.post_image(image_path, text, reply_to_id)
         
         try:
             # First test that we can connect to the Twitter API
@@ -303,7 +360,7 @@ class TwitterClient:
                 logger.warning("Falling back to mock Twitter client")
                 self.use_mock = True
                 self.mock_client = MockTwitterClient()
-                return self.mock_client.post_image(image_path, text)
+                return self.mock_client.post_image(image_path, text, reply_to_id)
                 
             # Upload the image using v1.1 API
             file_size_kb = os.path.getsize(image_path) / 1024
@@ -324,23 +381,32 @@ class TwitterClient:
                 logger.warning("Falling back to mock Twitter client due to media upload error")
                 self.use_mock = True
                 self.mock_client = MockTwitterClient()
-                return self.mock_client.post_image(image_path, text)
+                return self.mock_client.post_image(image_path, text, reply_to_id)
             
             # Create the tweet with media using v2 API
             tweet_text = text or "Image from Reddit"
             logger.info(f"Posting tweet with text: {tweet_text[:50]}...")
             
             try:
-                response = self.client.create_tweet(
-                    text=tweet_text[:280],  # Ensure text fits within Twitter limit
-                    media_ids=[media_id]
-                )
+                # Handle reply if needed
+                if reply_to_id:
+                    logger.info(f"Posting as reply to tweet ID: {reply_to_id}")
+                    response = self.client.create_tweet(
+                        text=tweet_text[:280],  # Ensure text fits within Twitter limit
+                        media_ids=[media_id],
+                        in_reply_to_tweet_id=reply_to_id
+                    )
+                else:
+                    response = self.client.create_tweet(
+                        text=tweet_text[:280],  # Ensure text fits within Twitter limit
+                        media_ids=[media_id]
+                    )
             except Exception as tweet_error:
                 logger.error(f"Tweet creation error: {str(tweet_error)}")
                 logger.warning("Falling back to mock Twitter client due to tweet creation error")
                 self.use_mock = True
                 self.mock_client = MockTwitterClient()
-                return self.mock_client.post_image(image_path, text)
+                return self.mock_client.post_image(image_path, text, reply_to_id)
             
             tweet_id = response.data['id']
             tweet_url = f"https://twitter.com/user/status/{tweet_id}"
@@ -358,7 +424,75 @@ class TwitterClient:
             logger.warning("Falling back to mock Twitter client due to unexpected error")
             self.use_mock = True
             self.mock_client = MockTwitterClient()
-            return self.mock_client.post_image(image_path, text)
+            return self.mock_client.post_image(image_path, text, reply_to_id)
+            
+    def create_thread_with_images(self, image_paths, main_text=None, continue_texts=None):
+        """
+        Create a Twitter thread with multiple images
+        
+        Args:
+            image_paths (list): List of paths to image files
+            main_text (str): Text for the first tweet
+            continue_texts (list): Optional list of texts for continuation tweets
+            
+        Returns:
+            dict: Information about the created thread including all tweet IDs and URLs
+        """
+        if not image_paths:
+            logger.error("No images provided for thread creation")
+            return {
+                'success': False,
+                'error': 'No images provided'
+            }
+            
+        # If we're using the mock client, delegate to it
+        if self.use_mock:
+            logger.warning("Using mock Twitter client for thread creation")
+            return self.mock_client.create_thread_with_images(image_paths, main_text, continue_texts)
+        
+        try:
+            # Create the first tweet with the first image
+            first_tweet = self.post_image(image_paths[0], main_text)
+            
+            thread_tweets = [first_tweet]
+            parent_id = first_tweet['tweet_id']
+            
+            # If we have more images, create reply tweets
+            for i, image_path in enumerate(image_paths[1:]):
+                # Get text for this continuation, if provided
+                text = None
+                if continue_texts and i < len(continue_texts):
+                    text = continue_texts[i]
+                else:
+                    # Default continuation text
+                    text = f"Continued ({i+2}/{len(image_paths)})"
+                    
+                # Post as reply to previous tweet
+                try:
+                    reply_tweet = self.post_image(image_path, text, reply_to_id=parent_id)
+                    thread_tweets.append(reply_tweet)
+                    
+                    # Update parent for next tweet in thread
+                    parent_id = reply_tweet['tweet_id']
+                except Exception as e:
+                    logger.error(f"Error creating thread at image {i+2}: {str(e)}")
+                    break
+                
+            logger.info(f"Created thread with {len(thread_tweets)} tweets")
+            
+            return {
+                'success': True,
+                'tweets': thread_tweets,
+                'first_tweet_id': first_tweet['tweet_id'],
+                'first_tweet_url': first_tweet['tweet_url']
+            }
+        except Exception as e:
+            logger.error(f"Error creating Twitter thread: {str(e)}")
+            # Fall back to mock Twitter client as a last resort
+            logger.warning("Falling back to mock Twitter client due to unexpected error")
+            self.use_mock = True
+            self.mock_client = MockTwitterClient()
+            return self.mock_client.create_thread_with_images(image_paths, main_text, continue_texts)
 
     def _wait_for_media_processing(self, media_id):
         """
