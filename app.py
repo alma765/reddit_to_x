@@ -73,20 +73,17 @@ def index():
     # Also try to directly check Twitter status
     try:
         # Make a test Twitter client
-        test_client = TwitterClient(use_mock=False)
-        # If the client is using mock mode despite explicitly requesting real client,
-        # then there might be authentication issues or rate limiting
-        if test_client.is_mock:
+        test_client = TwitterClient()
+        # Check if Twitter API is currently rate limited
+        if test_client.is_rate_limited():
             twitter_rate_limited = True
-            logger.warning("Twitter rate limit detected - client is in mock mode")
+            logger.warning("Twitter rate limit detected - API is returning 429 errors")
     except Exception as e:
         # If we can't even create the client, something is wrong with Twitter
         # But we don't want to crash the dashboard, so just log the error
         logger.error(f"Error checking Twitter status: {str(e)}")
         twitter_rate_limited = True
     
-    # Force to True for testing - we know Twitter is rate limited
-    twitter_rate_limited = True
     logger.warning(f"Twitter rate limit flag set to: {twitter_rate_limited}")
     
     return render_template('index.html', 

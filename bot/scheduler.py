@@ -46,21 +46,20 @@ def process_and_post():
         if twitter_client is None:
             try:
                 from bot.twitter_client import TwitterClient
-                # Use mock Twitter client when real authentication fails
-                twitter_client = TwitterClient(use_mock=False)  # Will automatically fall back to mock if auth fails
-                
-                if twitter_client.use_mock:
-                    logger.warning("Using mock Twitter client because authentication failed")
-                    logger.warning("Videos will be processed but posts will be simulated, not actually sent to Twitter")
-                    logger.warning("To fix this, update Twitter API credentials in the environment variables")
-                else:
-                    logger.info("Twitter client initialized successfully with real authentication")
+                twitter_client = TwitterClient()
+                logger.info("Twitter client initialized successfully")
             except Exception as e:
                 logger.error(f"Could not initialize Twitter client: {e}")
-                logger.error("Continuing with mock Twitter client as fallback")
-                # Create mock client directly
-                from bot.twitter_client import MockTwitterClient
-                twitter_client = MockTwitterClient()
+                # If we hit rate limits or have authentication issues, record the error and retry later
+                if "429" in str(e) or "Too Many Requests" in str(e):
+                    logger.error("Twitter rate limit reached. Will retry in 60 minutes.")
+                    return  # Exit processing and retry on next scheduled run
+                elif "401" in str(e):
+                    logger.error("Twitter authentication failed. Please check your API credentials.")
+                    return  # Exit processing as credentials are invalid
+                else:
+                    logger.error(f"Unknown Twitter error: {e}")
+                    return  # Exit processing for any other Twitter API issues
         
         # Fetch content (videos and images) from Reddit
         try:
@@ -311,13 +310,37 @@ def process_and_post():
                 logger.info(f"Using tweet text: {post_text}")
                 
                 # Post to Twitter based on content type
-                if content_type == "video":
-                    tweet_result = twitter_client.post_video(downloaded_path, post_text)
-                    logger.info(f"Successfully posted video from {submission.id} to Twitter")
-                elif content_type == "image":
-                    tweet_result = twitter_client.post_image(downloaded_path, post_text)
-                    logger.info(f"Successfully posted image from {submission.id} to Twitter")
-                elif content_type == "gallery":
+                try:
+                    if content_type == "video":
+                        tweet_result = twitter_client.post_video(downloaded_path, post_text)
+                        logger.info(f"Successfully posted video from {submission.id} to Twitter")
+                    elif content_type == "image":
+                        tweet_result = twitter_client.post_image(downloaded_path, post_text)
+                        logger.info(f"Successfully posted image from {submission.id} to Twitter")
+                    elif content_type == "gallery":
+                        # Process gallery post
+                        logger.info(f"Processing gallery post for {submission.id}")
+                except tweepy.TweepyException as e:
+                    error_msg = str(e)
+                    # Handle Twitter rate limits
+                    if "429" in error_msg or "Too Many Requests" in error_msg or "rate limit" in error_msg.lower():
+                        post.error = True
+                        post.error_message = "Twitter rate limit reached. Will retry in 60 minutes."
+                        post.processed_at = datetime.utcnow()
+                        db.session.add(post)
+                        db.session.commit()
+                        logger.error(f"Twitter rate limit reached when posting {content_type} for {submission.id}")
+                        # Exit the entire process early - we'll retry in 60 minutes
+                        return
+                    else:
+                        # Handle other Twitter API errors
+                        post.error = True
+                        post.error_message = f"Twitter API error: {error_msg}"
+                        post.processed_at = datetime.utcnow()
+                        db.session.add(post)
+                        db.session.commit()
+                        logger.error(f"Twitter API error when posting {content_type} for {submission.id}: {error_msg}")
+                        continue
                     # Process gallery post
                     logger.info(f"Processing gallery post for {submission.id}")
                     
