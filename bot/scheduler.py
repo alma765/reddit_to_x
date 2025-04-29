@@ -347,8 +347,13 @@ def process_and_post():
                         # Create tweet texts for the thread (first tweet uses main text)
                         continue_texts = []
                         for i in range(1, len(gallery_image_paths)):
-                            # Create a continuation tweet text
-                            continue_texts.append(f"{post_text} ({i+1}/{len(gallery_image_paths)})")
+                            # Create a simplified continuation tweet text
+                            # Strip any content type indicators first
+                            base_text = post_text
+                            base_text = base_text.replace(" [Photo]", "").replace(" [Gallery]", "").replace(" [Video]", "")
+                            
+                            # Add simple continuation
+                            continue_texts.append(f"Continued ({i+1}/{len(gallery_image_paths)})")
                         
                         # Create a thread with all gallery images
                         thread_result = twitter_client.create_thread_with_images(
