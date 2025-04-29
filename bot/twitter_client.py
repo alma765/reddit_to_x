@@ -146,13 +146,15 @@ class TwitterClient:
     def __init__(self, use_mock=False):
         """Initialize Twitter API client using Tweepy"""
         self.use_mock = use_mock
+        self._is_mock = False  # Will be set to True if we fall back to mock
         
         if use_mock or not all([TWITTER_API_KEY, TWITTER_API_KEY_SECRET, 
                                TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET]):
             logger.warning("Using mock Twitter client - tweets will not be posted to Twitter")
             self.mock_client = MockTwitterClient()
+            self._is_mock = True
             return
-            
+        
         try:
             logger.info("Initializing Twitter client with OAuth 1.0a...")
             logger.debug(f"API Key: {TWITTER_API_KEY[:4]}...{TWITTER_API_KEY[-4:] if len(TWITTER_API_KEY) > 8 else ''}")
@@ -219,6 +221,11 @@ class TwitterClient:
             self.use_mock = True
             self.mock_client = MockTwitterClient()
     
+    @property
+    def is_mock(self):
+        """Return whether this client is using mock mode"""
+        return self.use_mock
+        
     def post_video(self, video_path, text=None):
         """
         Post a video to Twitter

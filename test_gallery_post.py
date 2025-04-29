@@ -19,7 +19,12 @@ logger = logging.getLogger(__name__)
 
 # Initialize clients
 reddit_client = RedditClient()
-twitter_client = TwitterClient(use_mock=False)  # Will fall back to mock if authentication fails
+# Force using the real Twitter client, not mock
+twitter_client = TwitterClient(use_mock=False)
+if hasattr(twitter_client, 'is_mock') and twitter_client.is_mock:
+    # If it still fell back to mock, print a warning
+    print("WARNING: Using mock Twitter client despite explicitly requesting real one.")
+    print("Please check your Twitter credentials to enable real posting.")
 video_processor = VideoProcessor()
 
 def post_gallery(reddit_id="1ka65ks"):
