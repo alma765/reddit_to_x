@@ -113,15 +113,17 @@ def process_and_post():
                 continue
                 
             # For non-gallery posts, check for similar content by URL pattern
+            # BUT only consider previously SUCCESSFUL posts to Twitter as duplicates
             similar_posts = None
             if content_type != "gallery" and media_url:
                 media_url_pattern = media_url.split('?')[0]  # Remove query parameters
                 similar_posts = db.session.query(Post).filter(
-                    Post.reddit_url.like(f"%{media_url_pattern}%")
+                    Post.reddit_url.like(f"%{media_url_pattern}%") &
+                    Post.posted_to_twitter == True  # Only count successful posts as duplicates
                 ).first()
             
             if similar_posts:
-                logger.warning(f"Skipping submission {submission.id} with similar {content_type} URL pattern")
+                logger.warning(f"Skipping submission {submission.id} with similar {content_type} URL pattern that was previously posted to Twitter")
                 
                 # Record as duplicate but don't post
                 post = Post(

@@ -116,8 +116,10 @@ class VideoProcessor:
             
             # Check for any videos with similar dimensions and FPS
             # This is just a first filter to avoid unnecessary hash comparisons
+            # ONLY check against videos that were successfully posted to Twitter
             recent_posts = db.session.query(Post).filter(
-                Post.video_path != None
+                Post.video_path != None,
+                Post.posted_to_twitter == True  # Only consider successfully posted videos as duplicates
             ).order_by(Post.id.desc()).limit(20).all()
             
             # Check each recent video
