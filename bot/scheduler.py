@@ -124,22 +124,7 @@ def process_and_post():
             
             if similar_posts:
                 logger.warning(f"Skipping submission {submission.id} with similar {content_type} URL pattern that was previously posted to Twitter")
-                
-                # Record as duplicate but don't post
-                post = Post(
-                    reddit_id=submission.id,
-                    reddit_url=submission.url,
-                    title=submission.title,
-                    subreddit=submission.subreddit.display_name,
-                    author=submission.author.name if submission.author else "[deleted]",
-                    content_type=content_type,
-                    created_at=datetime.utcnow(),
-                    error=True,
-                    error_message=f"Duplicate {content_type} content detected",
-                    processed_at=datetime.utcnow()
-                )
-                db.session.add(post)
-                db.session.commit()
+                # Don't even add to the database, just skip it
                 continue
             
             logger.info(f"Processing new submission: {submission.id} - {submission.title}")
@@ -177,12 +162,7 @@ def process_and_post():
                     
                     # Check for duplicate content
                     if video_processor.is_duplicate_content(downloaded_path):
-                        logger.warning(f"Duplicate video content detected for {submission.id}")
-                        post.error = True
-                        post.error_message = "Duplicate video content detected"
-                        post.processed_at = datetime.utcnow()
-                        db.session.add(post)
-                        db.session.commit()
+                        logger.warning(f"Skipping submission {submission.id} - duplicate video content detected that was previously posted to Twitter")
                         
                         # Clean up duplicate video
                         try:
@@ -191,6 +171,7 @@ def process_and_post():
                         except Exception as e:
                             logger.error(f"Failed to remove duplicate video: {e}")
                         
+                        # Don't add to database, just skip
                         continue
                     
                     # Validate the video
@@ -212,12 +193,7 @@ def process_and_post():
                                 if validation['valid']:
                                     # Check for duplicate content again with compressed video
                                     if video_processor.is_duplicate_content(compressed_path):
-                                        logger.warning(f"Duplicate video content detected after compression for {submission.id}")
-                                        post.error = True
-                                        post.error_message = "Duplicate video content detected after compression"
-                                        post.processed_at = datetime.utcnow()
-                                        db.session.add(post)
-                                        db.session.commit()
+                                        logger.warning(f"Skipping submission {submission.id} - duplicate video content detected after compression that was previously posted to Twitter")
                                         
                                         # Clean up duplicate videos
                                         try:
@@ -227,6 +203,7 @@ def process_and_post():
                                         except Exception as e:
                                             logger.error(f"Failed to remove duplicate videos: {e}")
                                         
+                                        # Don't add to database, just skip
                                         continue
                                         
                                     # Update the path to the compressed version
