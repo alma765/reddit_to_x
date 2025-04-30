@@ -5,8 +5,10 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 import tweepy  # Import tweepy for rate limit exception handling
 
+# Import db but defer importing models to avoid circular imports
 from app import db
-from models import Post
+
+# Create the video processor import first
 from bot.video_processor import VideoProcessor
 from config import (
     SUBREDDITS,
@@ -73,6 +75,9 @@ def process_and_post():
         if not submissions:
             logger.info("No submissions found")
             return
+        
+        # Import the Post model here to avoid circular imports at module level
+        from models import Post
         
         # Find posts we haven't processed yet
         for submission in submissions:

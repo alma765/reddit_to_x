@@ -144,15 +144,9 @@ class TwitterClient:
             tuple: (is_limited, error_message) - is_limited is True if rate limited,
                   error_message contains details about the limit if applicable
         """
-        # Import here to avoid circular import
-        import sys
-        import importlib.util
-        
-        # Import SystemStatus without causing circular imports
-        spec = importlib.util.spec_from_file_location("models", "./models.py")
-        models = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(models)
-        SystemStatus = models.SystemStatus
+        # More cleanly import from models directly - this works better with our
+        # updated structure where Post and SystemStatus models have extend_existing=True
+        from models import SystemStatus
         
         # Check if we're already marked as rate limited
         twitter_rate_limited = SystemStatus.get_bool('twitter_rate_limited', False)
@@ -213,14 +207,9 @@ class TwitterClient:
         # As a safety check, we'll also check with the API but only very occasionally
         # The API check is behind a time-based check so we don't waste our quota
         import datetime
-        import sys
-        import importlib.util
         
-        # Import SystemStatus without causing circular imports
-        spec = importlib.util.spec_from_file_location("models", "./models.py")
-        models = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(models)
-        SystemStatus = models.SystemStatus
+        # Import SystemStatus directly - works now with extend_existing=True
+        from models import SystemStatus
         
         last_check_time_str = SystemStatus.get_str('last_twitter_status_check', None)
         should_check = True
