@@ -4,6 +4,7 @@ from app import db
 
 class SystemStatus(db.Model):
     """Model for tracking system status flags"""
+    __table_args__ = {'extend_existing': True}
     id = db.Column(db.Integer, primary_key=True)
     key = db.Column(db.String(50), unique=True, nullable=False)
     value = db.Column(db.String(255), nullable=True)
@@ -54,6 +55,7 @@ class SystemStatus(db.Model):
 
 class Post(db.Model):
     """Model for tracking Reddit posts processed by the bot"""
+    __table_args__ = {'extend_existing': True}
     id = db.Column(db.Integer, primary_key=True)
     reddit_id = db.Column(db.String(20), unique=True, nullable=False)
     reddit_url = db.Column(db.String(255), nullable=False)
