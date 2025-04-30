@@ -368,22 +368,31 @@ def clean_duplicate_entries():
 
 @app.route('/api/run_now', methods=['POST'])
 def run_now():
-    """Run the bot once immediately"""
-    from bot.scheduler import process_and_post
+    """Run the bot once immediately via a one-time job"""
+    from bot.scheduler import scheduler, process_and_post
+    from datetime import datetime, timedelta
     
     try:
-        # First clean up any mock Twitter records
+        # First clean up any mock Twitter records in this request
         cleanup_mock_twitter_records()
         
-        # Clean up any fake duplicate entries
+        # Clean up any fake duplicate entries in this request
         clean_duplicate_entries()
         
-        # Then run the processing
-        process_and_post()
-        flash('Bot executed successfully', 'success')
+        # Schedule the processing to run immediately as a one-time job
+        # This prevents the request from timing out during long-running operations
+        job_id = 'manual_run_' + datetime.now().strftime('%Y%m%d%H%M%S')
+        scheduler.add_job(
+            process_and_post,
+            'date',
+            run_date=datetime.now() + timedelta(seconds=5),  # Run 5 seconds after this request completes
+            id=job_id
+        )
+        flash('Bot scheduled to run in a few seconds', 'success')
+        logger.info(f"Manual bot run scheduled with job ID: {job_id}")
     except Exception as e:
-        logger.exception("Error running bot manually")
-        flash(f'Error running bot: {str(e)}', 'danger')
+        logger.exception("Error scheduling bot to run manually")
+        flash(f'Error scheduling bot: {str(e)}', 'danger')
     
     return redirect(url_for('index'))
 
