@@ -342,10 +342,8 @@ def process_and_post():
                             # Create tweet texts for the thread (first tweet uses main text)
                             continue_texts = []
                             for i in range(1, len(gallery_image_paths)):
-                                # Create a simplified continuation tweet text
-                                # Strip any content type indicators first
+                                # We no longer need to strip content type indicators since we don't add them anymore
                                 base_text = post_text
-                                base_text = base_text.replace(" [Photo]", "").replace(" [Gallery]", "").replace(" [Video]", "")
                                 
                                 # Add clear numbering for gallery images
                                 # Always show the current image number and total count

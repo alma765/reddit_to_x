@@ -703,13 +703,7 @@ class RedditClient:
         if metadata['flair'] and metadata['flair'].lower() not in ['video', 'media', 'post']:
             tweet += f" [{metadata['flair']}]"
             
-        # Add content type indicator
-        if metadata['content_type'] == 'video':
-            tweet += " [Video]"
-        elif metadata['content_type'] == 'image':
-            tweet += " [Photo]"
-        elif metadata['content_type'] == 'gallery':
-            tweet += " [Gallery]"
+        # Content type is clear from Twitter's interface, no need for explicit tags
         
         return tweet
 
