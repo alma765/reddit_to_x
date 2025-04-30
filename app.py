@@ -339,6 +339,33 @@ def stop_bot():
         flash('Scheduler is already stopped', 'info')
     return redirect(url_for('index'))
 
+def clean_duplicate_entries():
+    """
+    Remove existing duplicate entries that were never posted to Twitter.
+    A true duplicate should be content that was successfully posted to Twitter.
+    """
+    from models import Post
+    
+    # Find all entries marked as duplicates that were never posted to Twitter
+    fake_duplicates = Post.query.filter(
+        Post.error == True,
+        Post.error_message.like("%Duplicate%"),
+        Post.posted_to_twitter == False
+    ).all()
+    
+    logger.info(f"Found {len(fake_duplicates)} 'duplicate' entries that were never posted to Twitter")
+    
+    # Delete these entries
+    for post in fake_duplicates:
+        logger.info(f"Deleting fake duplicate entry: {post.reddit_id} - {post.title}")
+        db.session.delete(post)
+    
+    # Commit changes
+    db.session.commit()
+    logger.info(f"Successfully cleaned up {len(fake_duplicates)} fake duplicate entries")
+    
+    return len(fake_duplicates)
+
 @app.route('/api/run_now', methods=['POST'])
 def run_now():
     """Run the bot once immediately"""
@@ -348,12 +375,27 @@ def run_now():
         # First clean up any mock Twitter records
         cleanup_mock_twitter_records()
         
+        # Clean up any fake duplicate entries
+        clean_duplicate_entries()
+        
         # Then run the processing
         process_and_post()
         flash('Bot executed successfully', 'success')
     except Exception as e:
         logger.exception("Error running bot manually")
         flash(f'Error running bot: {str(e)}', 'danger')
+    
+    return redirect(url_for('index'))
+
+@app.route('/api/cleanup_duplicates', methods=['POST'])
+def cleanup_duplicates():
+    """Clean up fake duplicate entries from the database"""
+    try:
+        num_cleaned = clean_duplicate_entries()
+        flash(f'Successfully cleaned up {num_cleaned} fake duplicate entries', 'success')
+    except Exception as e:
+        logger.exception("Error cleaning up duplicate entries")
+        flash(f'Error cleaning up duplicate entries: {str(e)}', 'danger')
     
     return redirect(url_for('index'))
 
