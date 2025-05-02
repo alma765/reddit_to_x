@@ -134,10 +134,64 @@ function updateDashboardData() {
 // Initialize on document load
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize Feather icons
-    if (typeof feather !== 'undefined') {
-        feather.replace();
-    }
-    
+    feather.replace();
+
+    // Add console logging for debugging
+    console.log('Page loaded, initializing buttons');
+
+    // Handle Post to Twitter button clicks
+    document.querySelectorAll('.post-to-twitter').forEach(button => {
+        button.addEventListener('click', async function() {
+            const postId = this.dataset.postId;
+            const button = this;
+            
+            // Disable button and show loading state
+            button.disabled = true;
+            button.innerHTML = '<i data-feather="loader"></i> Posting...';
+            feather.replace();
+            
+            try {
+                const response = await fetch(`/posts/${postId}/post-to-twitter`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // Update button to show success
+                    button.innerHTML = '<i data-feather="check-circle"></i> Posted!';
+                    feather.replace();
+                    
+                    // Add Twitter link
+                    const twitterLink = document.createElement('a');
+                    twitterLink.href = data.twitter_post_url;
+                    twitterLink.target = '_blank';
+                    twitterLink.className = 'btn btn-success';
+                    twitterLink.innerHTML = '<i data-feather="twitter"></i> View on Twitter';
+                    feather.replace();
+                    
+                    // Replace button with link
+                    button.parentNode.replaceChild(twitterLink, button);
+                } else {
+                    // Show error
+                    button.innerHTML = '<i data-feather="alert-circle"></i> Error';
+                    feather.replace();
+                    
+                    // Show error message
+                    alert(data.error || 'Failed to post to Twitter');
+                }
+            } catch (error) {
+                console.error('Error posting to Twitter:', error);
+                button.innerHTML = '<i data-feather="alert-circle"></i> Error';
+                feather.replace();
+                alert('Failed to post to Twitter. Please try again.');
+            }
+        });
+    });
+
     // Enable tooltips
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
     if (typeof bootstrap !== 'undefined') {

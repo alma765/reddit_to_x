@@ -1,6 +1,10 @@
 import os
 import logging
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -34,8 +38,66 @@ with app.app_context():
     import models  # noqa: F401
     db.create_all()
 
-from bot.scheduler import scheduler
+from bot.scheduler import scheduler, fetch_reddit_content
 from config import SUBREDDITS, POST_INTERVAL_MINUTES, REDDIT_CLIENT_ID, TWITTER_API_KEY
+
+if __name__ == '__main__':
+    # Initialize scheduler
+    from apscheduler.schedulers.background import BackgroundScheduler
+    scheduler = BackgroundScheduler()
+    
+    # Add the scheduled job to fetch Reddit content
+    scheduler.add_job(
+        fetch_reddit_content,
+        'interval',
+        minutes=POST_INTERVAL_MINUTES,
+        id='reddit_content_job'
+    )
+    
+    try:
+        # Start scheduler
+        scheduler.start()
+        
+        # Run the Flask app
+        app.run(debug=True)
+    except KeyboardInterrupt:
+        # This is triggered when you press Ctrl+C
+        scheduler.shutdown()
+    except Exception as e:
+        logger.error(f"Error starting application: {e}")
+        scheduler.shutdown()
+        raise
+
+@app.route('/api/post_to_twitter/<int:post_id>', methods=['POST'])
+def post_to_twitter(post_id):
+    """Route to manually post a specific post to Twitter"""
+    from models import Post
+    from bot.twitter_client import TwitterClient
+    
+    try:
+        post = db.session.query(Post).filter_by(id=post_id).first()
+        if not post:
+            return jsonify({'error': 'Post not found'}), 404
+            
+        if post.posted_to_twitter:
+            return jsonify({'error': 'Post has already been posted to Twitter'}), 400
+            
+        # Initialize Twitter client
+        twitter_client = TwitterClient()
+        
+        # Post to Twitter based on content type
+        if post.content_type == 'video':
+            twitter_client.post_video(post)
+        elif post.content_type == 'image':
+            twitter_client.post_image(post)
+        elif post.content_type == 'gallery':
+            twitter_client.post_gallery(post)
+            
+        return jsonify({'message': 'Post successfully sent to Twitter'}), 200
+        
+    except Exception as e:
+        logger.error(f"Error posting to Twitter: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/')
 def index():
@@ -379,19 +441,12 @@ def run_now():
         # Clean up any fake duplicate entries in this request
         clean_duplicate_entries()
         
-        # Schedule the processing to run immediately as a one-time job
-        # This prevents the request from timing out during long-running operations
-        job_id = 'manual_run_' + datetime.now().strftime('%Y%m%d%H%M%S')
-        scheduler.add_job(
-            process_and_post,
-            'date',
-            run_date=datetime.now() + timedelta(seconds=5),  # Run 5 seconds after this request completes
-            id=job_id
-        )
-        flash('Bot scheduled to run in a few seconds', 'success')
-        logger.info(f"Manual bot run scheduled with job ID: {job_id}")
+        # Fetch content immediately
+        fetch_reddit_content()
+        return jsonify({'success': True, 'message': 'Content fetching started'})
     except Exception as e:
-        logger.exception("Error scheduling bot to run manually")
+        logger.error(f"Error fetching content: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
         flash(f'Error scheduling bot: {str(e)}', 'danger')
     
     return redirect(url_for('index'))

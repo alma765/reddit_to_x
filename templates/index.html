@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reddit to Twitter Bot</title>
     <link rel="stylesheet" href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/feather-icons">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}">
+    <script src="https://unpkg.com/feather-icons"></script>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
@@ -41,7 +42,265 @@
                 {% endfor %}
             {% endif %}
         {% endwith %}
-        
+
+        <div class="row mb-4">
+            <div class="col-12">
+                <h2 class="mb-3">Reddit Content Fetcher</h2>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-primary" onclick="fetchContent()">
+                        <i data-feather="refresh-cw"></i> Fetch New Content
+                    </button>
+                    <button class="btn btn-success" onclick="runNow()">
+                        <i data-feather="play"></i> Process New Content
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Available Content</h5>
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-outline-primary" onclick="showAllPosts()">Show All</button>
+                            <button class="btn btn-outline-success" onclick="showUnpostedPosts()">Show Unposted</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="posts-container">
+                            <div class="text-center py-4">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Available Content</h5>
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-outline-primary" onclick="showAllPosts()">Show All</button>
+                            <button class="btn btn-outline-success" onclick="showUnpostedPosts()">Show Unposted</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="posts-container">
+                            <div class="text-center py-4">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // Initialize Feather icons
+            document.addEventListener('DOMContentLoaded', function() {
+                try {
+                    feather.replace();
+                    console.log('Feather icons initialized successfully');
+                } catch (error) {
+                    console.error('Error initializing Feather icons:', error);
+                }
+            });
+
+            // Add console logging for debugging
+            console.log('Page loaded, initializing buttons');
+
+            // Handle Post to Twitter button clicks
+            document.addEventListener('DOMContentLoaded', function() {
+                // Initialize Feather icons
+                feather.replace();
+
+                // Handle Post to Twitter button clicks
+                document.querySelectorAll('.post-to-twitter').forEach(button => {
+                    button.addEventListener('click', async function() {
+                        const postId = this.dataset.postId;
+                        const button = this;
+                        
+                        // Disable button and show loading state
+                        button.disabled = true;
+                        button.innerHTML = '<i data-feather="loader"></i> Posting...';
+                        feather.replace();
+                        
+                        try {
+                            const response = await fetch(`/posts/${postId}/post-to-twitter`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                }
+                            });
+                            
+                            const data = await response.json();
+                            
+                            if (response.ok) {
+                                // Update button to show success
+                                button.innerHTML = '<i data-feather="check-circle"></i> Posted!';
+                                feather.replace();
+                                
+                                // Add Twitter link
+                                const twitterLink = document.createElement('a');
+                                twitterLink.href = data.twitter_post_url;
+                                twitterLink.target = '_blank';
+                                twitterLink.className = 'btn btn-success';
+                                twitterLink.innerHTML = '<i data-feather="twitter"></i> View on Twitter';
+                                feather.replace();
+                                
+                                // Replace button with link
+                                button.parentNode.replaceChild(twitterLink, button);
+                            } else {
+                                // Show error
+                                button.innerHTML = '<i data-feather="alert-circle"></i> Error';
+                                feather.replace();
+                                
+                                // Show error message
+                                alert(data.error || 'Failed to post to Twitter');
+                            }
+                        } catch (error) {
+                            console.error('Error posting to Twitter:', error);
+                            button.innerHTML = '<i data-feather="alert-circle"></i> Error';
+                            feather.replace();
+                            alert('Failed to post to Twitter. Please try again.');
+                        }
+                    });
+                });
+
+                // Initialize other functionality
+                function fetchContent() {
+                    console.log('fetchContent called');
+                    fetch('/api/run_now', {
+                        method: 'POST'
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log('Fetch response:', data);
+                        if (data.success) {
+                            alert('Content fetching scheduled!');
+                        } else {
+                            alert('Error: ' + data.error);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Fetch error:', error);
+                        alert('Error: Failed to fetch content');
+                    });
+                }
+
+                function runNow() {
+                    console.log('runNow called');
+                    fetch('/api/run_now', {
+                        method: 'POST'
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log('RunNow response:', data);
+                        if (data.success) {
+                            alert('Content processing scheduled!');
+                        } else {
+                            alert('Error: ' + data.error);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('RunNow error:', error);
+                        alert('Error: Failed to run now');
+                    });
+                }
+
+                function showAllPosts() {
+                    console.log('showAllPosts called');
+                    fetch('/api/posts')
+                        .then(response => response.json())
+                        .then(posts => {
+                            console.log('Posts loaded:', posts);
+                            displayPosts(posts);
+                        })
+                        .catch(error => {
+                            console.error('Error loading posts:', error);
+                            alert('Error: Failed to load posts');
+                        });
+                }
+
+                function showUnpostedPosts() {
+                    console.log('showUnpostedPosts called');
+                    fetch('/api/posts?posted=false')
+                        .then(response => response.json())
+                        .then(posts => {
+                            console.log('Unposted posts loaded:', posts);
+                            displayPosts(posts);
+                        })
+                        .catch(error => {
+                            console.error('Error loading unposted posts:', error);
+                            alert('Error: Failed to load unposted posts');
+                        });
+                }
+
+                function displayPosts(posts) {
+                    const container = document.getElementById('posts-container');
+                    if (!container) {
+                        console.error('Posts container not found');
+                        return;
+                    }
+                    
+                    container.innerHTML = '';
+                    
+                    if (posts.length === 0) {
+                        container.innerHTML = '<p class="text-center text-muted">No posts found.</p>';
+                        return;
+                    }
+
+                    posts.forEach(post => {
+                        const postCard = document.createElement('div');
+                        postCard.className = 'card mb-3';
+                        postCard.innerHTML = `
+                            <div class="card-body">
+                                <h5 class="card-title">${post.title}</h5>
+                                <p class="card-text">
+                                    <small class="text-muted">
+                                        <span class="badge bg-primary">${post.subreddit}</span>
+                                        {% if post.content_type == 'video' %}
+                                        <span class="badge bg-info">Video</span>
+                                        {% elif post.content_type == 'image' %}
+                                        <span class="badge bg-info">Image</span>
+                                        {% endif %}
+                                        <span class="badge bg-${post.status === 'posted' ? 'success' : post.status === 'error' ? 'danger' : 'warning'}">${post.status}</span>
+                                    </small>
+                                </p>
+                                <div class="mt-3">
+                                    {% if post.status === 'pending' %}
+                                    <button class="btn btn-sm btn-primary post-to-twitter" data-post-id="{{ post.id }}">
+                                        <i data-feather="twitter"></i> Post to Twitter
+                                    </button>
+                                    {% elif post.status === 'posted' %}
+                                    <a href="{{ post.twitter_post_url }}" class="btn btn-sm btn-success" target="_blank">
+                                        <i data-feather="twitter"></i> View on Twitter
+                                    </a>
+                                    {% elif post.status === 'error' %}
+                                    <button class="btn btn-sm btn-danger" disabled>
+                                        <i data-feather="alert-circle"></i> Error
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        `;
+                        container.appendChild(postCard);
+                    });
+                }
+
+                // Initialize when page loads
+                showAllPosts();
+            });
+        </script>
+
         {% if twitter_rate_limited %}
         <div class="alert alert-warning" id="rate-limit-alert">
             <h4 class="alert-heading"><i data-feather="alert-triangle"></i> Twitter Rate Limit Reached</h4>

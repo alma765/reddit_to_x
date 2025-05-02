@@ -75,6 +75,9 @@ class Post(db.Model):
     posted_to_twitter = db.Column(db.Boolean, default=False)
     twitter_post_id = db.Column(db.String(50), nullable=True)
     twitter_post_url = db.Column(db.String(255), nullable=True)
+    post_text = db.Column(db.Text, nullable=True)  # Stores the final posted text
+    status = db.Column(db.String(20), default='pending')  # 'pending', 'posted', 'error'
+    error_details = db.Column(db.Text, nullable=True)  # Detailed error information
     
     error = db.Column(db.Boolean, default=False)
     error_message = db.Column(db.Text, nullable=True)
@@ -99,8 +102,11 @@ class Post(db.Model):
             'posted_to_twitter': self.posted_to_twitter,
             'twitter_post_id': self.twitter_post_id,
             'twitter_post_url': self.twitter_post_url,
+            'post_text': self.post_text,
+            'status': self.status,
             'error': self.error,
             'error_message': self.error_message,
+            'error_details': self.error_details,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'processed_at': self.processed_at.isoformat() if self.processed_at else None
         }
